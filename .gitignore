@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 环境变量
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据库
+*.db
+
+# Node.js
+node_modules/
+package-lock.json
+
+# uni-app 编译产物
+**/dist/
+**/unpackage/
+Service-Outsourcing/frontend/front/src/
+
+# 上传图片
+Service-Outsourcing/backend/static/uploads/
+
+# Python 打包
+build/
+*.egg-info/
+
+# YOLO训练产物和数据集（太大不上传）
+yolo-distiller/runs/
+yolo-distiller/datasets_new_aug.zip
+yolo-distiller/datasets_new_aug/
+yolo-distiller/datasets/
+yolo-distiller/bus.jpg
+
+# 模型权重
+*.pt
+*.onnx
