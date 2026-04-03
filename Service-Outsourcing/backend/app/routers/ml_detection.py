@@ -31,7 +31,8 @@ _detector = None
 _detector_lock = threading.Lock()
 
 # 推理服务路径（yolo-distiller/scripts/inference_service.py）
-YOLO_DISTILLER_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "yolo-distiller"
+# ml_detection.py 在 backend/app/routers/ 下，需要 5 层 parent 到达 LMC/
+YOLO_DISTILLER_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent / "yolo-distiller"
 INFERENCE_MODULE_PATH = YOLO_DISTILLER_ROOT / "scripts"
 
 # 模型候选路径（模块级，供 get_detector 和 /status 共用）
