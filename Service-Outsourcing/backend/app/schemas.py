@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
@@ -23,6 +23,12 @@ class DetectionRecordCreate(BaseModel):
     energy_level: float
     defect_type: str
     confidence: float
+    position_status: str = "正常"
+    preset_model: str = ""
+    position_x: float = 0.5
+    position_y: float = 0.5
+    ocr_text: str = ""
+    is_qualified: Optional[bool] = None  # ML路径直接传入推理判定结果，普通接口留None走judge_qualified
 
 
 class DetectionRecordOut(DetectionRecordBase):

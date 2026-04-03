@@ -1,68 +1,121 @@
 import os
-from fastapi import FastAPI, Request
+from dotenv import load_dotenv
+
+load_dotenv()  # fix #29: 从 .env 文件加载环境变量
+
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.database import engine, Base
-from app.routers import detection, ml_detection
+from app.routers import detection, ml_detection, export
+
+# 以 backend/ 目录为基准，不依赖启动目录
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(title="Detection Backend", version="1.0", description="Industrial Detection Backend Service")
 
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
 
-# CORS
+# CORS — allow_origins=["*"] 与 allow_credentials=True 不可共存
+ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 静态文件（上传的图片等）
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# 静态文件（上传的图片等）— 使用绝对路径，不依赖启动目录
+STATIC_DIR = os.path.join(BACKEND_DIR, "static")
+os.makedirs(STATIC_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # 路由
 app.include_router(detection.router)
 app.include_router(ml_detection.router)
+app.include_router(export.router)
 
-# 前端H5静态文件
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "front", "dist", "build", "h5")
-FRONTEND_DIR = os.path.abspath(FRONTEND_DIR)
+
+# =========================
+# WebSocket 实时推送
+# =========================
+class ConnectionManager:
+    """管理WebSocket连接"""
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        try:
+            self.active_connections.remove(websocket)
+        except ValueError:
+            pass
+
+    async def broadcast(self, message: dict):
+        import json
+        data = json.dumps(message, ensure_ascii=False)
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(data)
+            except Exception:
+                pass
+
+
+ws_manager = ConnectionManager()
+
+
+@app.websocket("/ws/detection")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket端点：实时推送检测结果"""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # 保持连接，等待客户端消息（心跳）
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+
+
+# 暴露ws_manager供ml_detection路由使用
+app.state.ws_manager = ws_manager
+
+# 前端静态文件（优先新版 web 前端，回退到旧版 uni-app）
+WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "web", "dist")
+WEB_DIR = os.path.abspath(WEB_DIR)
+LEGACY_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "front", "dist", "build", "h5")
+LEGACY_DIR = os.path.abspath(LEGACY_DIR)
+
+FRONTEND_DIR = WEB_DIR if os.path.isdir(WEB_DIR) else LEGACY_DIR
 
 if os.path.isdir(FRONTEND_DIR):
-    # 挂载前端的 assets 目录
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="frontend_assets")
-
-    # 挂载前端的 uni_modules 目录（如果存在）
-    uni_modules_dir = os.path.join(FRONTEND_DIR, "uni_modules")
-    if os.path.isdir(uni_modules_dir):
-        app.mount("/uni_modules", StaticFiles(directory=uni_modules_dir), name="frontend_uni_modules")
-
-    # 前端静态资源
-    frontend_static = os.path.join(FRONTEND_DIR, "static")
-    if os.path.isdir(frontend_static):
-        app.mount("/frontend_static", StaticFiles(directory=frontend_static), name="frontend_static_files")
+    assets_dir = os.path.join(FRONTEND_DIR, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend_assets")
 
     @app.get("/")
     async def serve_frontend():
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
-    # 捕获所有非API路由，返回前端index.html（SPA路由支持）
     @app.get("/{full_path:path}")
     async def catch_all(request: Request, full_path: str):
-        # 如果是API路径，跳过
-        if full_path.startswith("api/") or full_path.startswith("static/") or full_path.startswith("docs") or full_path.startswith("openapi"):
-            return {"detail": "Not Found"}
-
-        # 检查是否是前端目录下的实际文件
-        file_path = os.path.join(FRONTEND_DIR, full_path)
+        if full_path.startswith(("api/", "static/", "docs", "openapi")):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        file_path = os.path.normpath(os.path.join(FRONTEND_DIR, full_path))
+        # 安全检查：确保路径不逃逸出 FRONTEND_DIR（fix #41）
+        if not file_path.startswith(FRONTEND_DIR):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-
-        # 否则返回index.html（SPA路由）
         return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 else:
     @app.get("/")

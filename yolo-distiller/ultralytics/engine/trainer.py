@@ -103,14 +103,13 @@ class MGDLoss(nn.Module):
         super(MGDLoss, self).__init__()
         self.alpha_mgd = alpha_mgd
         self.lambda_mgd = lambda_mgd
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.generation = nn.ModuleList([
             nn.Sequential(
                 nn.Conv2d(channel, channel, kernel_size=3, padding=1),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(channel, channel, kernel_size=3, padding=1)
-            ).to(device) for channel in teacher_channels
+            ) for channel in teacher_channels
         ])
 
     def forward(self, y_s, y_t, layer=None):
@@ -162,7 +161,6 @@ class DPFDLoss(nn.Module):
 
     def __init__(self, channels_s, channels_t, tau=1.0, alpha_mgd=0.00002, lambda_mgd=0.65):
         super(DPFDLoss, self).__init__()
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         self.tau = tau
         self.alpha_mgd = alpha_mgd
@@ -174,7 +172,7 @@ class DPFDLoss(nn.Module):
                 nn.Conv2d(ch, ch, kernel_size=3, padding=1),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(ch, ch, kernel_size=3, padding=1)
-            ).to(device) for ch in channels_t
+            ) for ch in channels_t
         ])
 
         # 自适应门控网络：根据特征图生成CWD/MGD的混合权重
@@ -182,11 +180,11 @@ class DPFDLoss(nn.Module):
             nn.Sequential(
                 nn.AdaptiveAvgPool2d(1),
                 nn.Flatten(),
-                nn.Linear(ch, ch // 4),
+                nn.Linear(ch, max(ch // 4, 1)),
                 nn.ReLU(inplace=True),
-                nn.Linear(ch // 4, 2),
+                nn.Linear(max(ch // 4, 1), 2),
                 nn.Softmax(dim=1)
-            ).to(device) for ch in channels_t
+            ) for ch in channels_t
         ])
 
     def forward(self, y_s, y_t):
@@ -231,9 +229,6 @@ class FeatureLoss(nn.Module):
         self.loss_weight = loss_weight
         self.distiller = distiller
 
-        # Move all modules to same precision
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
         # Convert to ModuleList and ensure consistent dtype
         self.align_module = nn.ModuleList()
         self.norm = nn.ModuleList()
@@ -244,15 +239,15 @@ class FeatureLoss(nn.Module):
             align = nn.Sequential(
                 nn.Conv2d(s_chan, t_chan, kernel_size=1, stride=1, padding=0),
                 nn.BatchNorm2d(t_chan, affine=False)
-            ).to(device)
+            )
             self.align_module.append(align)
 
         # Create normalization layers
         for t_chan in channels_t:
-            self.norm.append(nn.BatchNorm2d(t_chan, affine=False).to(device))
+            self.norm.append(nn.BatchNorm2d(t_chan, affine=False))
 
         for s_chan in channels_s:
-            self.norm1.append(nn.BatchNorm2d(s_chan, affine=False).to(device))
+            self.norm1.append(nn.BatchNorm2d(s_chan, affine=False))
 
         if distiller == 'mgd':
             self.feature_loss = MGDLoss(channels_s, channels_t)
@@ -281,8 +276,9 @@ class FeatureLoss(nn.Module):
                 stu_feats.append(s)
                 tea_feats.append(t.detach())
             else:
-                # Apply normalization
-                t = self.norm1[idx](t)
+                # MGD path: align student channels to teacher channels, then normalize
+                s = self.align_module[idx](s)
+                t = self.norm[idx](t)
                 stu_feats.append(s)
                 tea_feats.append(t.detach())
 
@@ -292,17 +288,17 @@ class FeatureLoss(nn.Module):
 
 class DistillationLoss:
     def __init__(self, models, modelt, distiller="CWDLoss"):
-        self.distiller = distiller
+        self.distiller = distiller[:3].lower()  # 统一为 'cwd'/'mgd'/'dpf'
         self.layers = ["6", "8", "13", "16", "19", "22"]
         self.models = models 
         self.modelt = modelt
 
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        # ini warm up
+        # ini warm up — use the device the models are already on
+        device = next(self.models.parameters()).device
         with torch.no_grad():
-            dummy_input = torch.randn(1, 3, 640, 640)
-            _ = self.models(dummy_input.to(device))
-            _ = self.modelt(dummy_input.to(device))
+            dummy_input = torch.randn(1, 3, 640, 640, device=device)
+            _ = self.models(dummy_input)
+            _ = self.modelt(dummy_input)
         
         self.channels_s = []
         self.channels_t = []
@@ -319,44 +315,63 @@ class DistillationLoss:
         )
         
     def _find_layers(self):
+        """自动查找Teacher和Student模型中可用于蒸馏的特征层。
 
+        策略：
+        1. 先尝试用预设层号匹配（适用于标准YOLO结构）
+        2. 如果预设层号匹配不到，自动扫描所有含cv2.conv的层
+        3. 取两个模型中最后N个匹配层（N = min(teacher层数, student层数)）
+        """
         self.channels_s = []
         self.channels_t = []
         self.teacher_module_pairs = []
         self.student_module_pairs = []
-        
-        for name, ml in self.modelt.named_modules():
-            if name is not None:
-                name = name.split(".")
-                # print(name)
-                
-                if name[0] != "model":
-                    continue
-                if len(name) >= 3:
-                    if name[1] in self.layers:
-                        if "cv2" in name[2]:
-                            if hasattr(ml, 'conv'):
-                                self.channels_t.append(ml.conv.out_channels)
-                                self.teacher_module_pairs.append(ml)
-        # print()
-        for name, ml in self.models.named_modules():
-            if name is not None:
-                name = name.split(".")
-                # print(name)
-                if name[0] != "model":
-                    continue
-                if len(name) >= 3:
-                    if name[1] in self.layers:
-                        if "cv2" in name[2]:
-                            if hasattr(ml, 'conv'):
-                                self.channels_s.append(ml.conv.out_channels)
-                                self.student_module_pairs.append(ml)
 
+        def find_cv2_layers(model, layer_filter=None):
+            """从模型中提取所有cv2卷积层的通道数和模块引用"""
+            channels = []
+            modules = []
+            for name, ml in model.named_modules():
+                if name is None:
+                    continue
+                parts = name.split(".")
+                if parts[0] != "model" or len(parts) < 3:
+                    continue
+                # 如果有层号过滤器，先尝试精确匹配
+                if layer_filter and parts[1] not in layer_filter:
+                    continue
+                if "cv2" in parts[2] and hasattr(ml, 'conv'):
+                    channels.append(ml.conv.out_channels)
+                    modules.append(ml)
+            return channels, modules
+
+        # 先尝试用预设层号
+        ch_t, mod_t = find_cv2_layers(self.modelt, self.layers)
+        ch_s, mod_s = find_cv2_layers(self.models, self.layers)
+
+        # 如果预设层号匹配不到足够的层，回退到自动扫描
+        if len(ch_t) == 0 or len(ch_s) == 0:
+            LOGGER.info("预设层号未匹配到特征层，自动扫描所有cv2层...")
+            ch_t, mod_t = find_cv2_layers(self.modelt)
+            ch_s, mod_s = find_cv2_layers(self.models)
+
+        if len(ch_t) == 0 or len(ch_s) == 0:
+            LOGGER.warning("警告: 未找到可用于蒸馏的特征层！蒸馏损失将为0。")
+            return
+
+        self.channels_t = ch_t
+        self.channels_s = ch_s
+        self.teacher_module_pairs = mod_t
+        self.student_module_pairs = mod_s
+
+        # 取最后N个匹配层（通常是neck/head部分，特征最丰富）
         nl = min(len(self.channels_s), len(self.channels_t))
         self.channels_s = self.channels_s[-nl:]
         self.channels_t = self.channels_t[-nl:]
         self.teacher_module_pairs = self.teacher_module_pairs[-nl:]
         self.student_module_pairs = self.student_module_pairs[-nl:]
+
+        LOGGER.info(f"蒸馏特征层: {nl}层, Student通道={self.channels_s}, Teacher通道={self.channels_t}")
 
     def register_hook(self):
         # Remove the existing hook if they exist
@@ -387,16 +402,19 @@ class DistillationLoss:
             self.remove_handle.append(ori.register_forward_hook(make_student_hook(self.student_outputs)))
 
     def get_loss(self):
+        # Use model device for fallback tensors to avoid device mismatch
+        device = next(self.models.parameters()).device
+
         if not self.teacher_outputs or not self.student_outputs:
-            return torch.tensor(0.0, requires_grad=True)
-        
+            return torch.tensor(0.0, device=device, requires_grad=True)
+
         if len(self.teacher_outputs) != len(self.student_outputs):
             print(f"Warning: Mismatched outputs - Teacher: {len(self.teacher_outputs)}, Student: {len(self.student_outputs)}")
-            return torch.tensor(0.0, requires_grad=True)
+            return torch.tensor(0.0, device=device, requires_grad=True)
         
         quant_loss = self.distill_loss_fn(y_s=self.student_outputs, y_t=self.teacher_outputs)
         
-        if self.distiller not in ('cwd', 'dpfd'):
+        if self.distiller not in ('cwd', 'dpf'):
             quant_loss *= 0.3
 
         self.teacher_outputs.clear()
@@ -601,11 +619,12 @@ class BaseTrainer:
         ckpt = self.setup_model()
         self.model = self.model.to(self.device)
         
-        # Load teacher model to device
+        # Load teacher model to device (frozen — teacher should NOT be updated)
         if self.teacher is not None:
-            for k, v in self.teacher.named_parameters():
-                v.requires_grad = True
             self.teacher = self.teacher.to(self.device)
+            self.teacher.eval()
+            for k, v in self.teacher.named_parameters():
+                v.requires_grad = False
                 
         self.set_model_attributes()
 
@@ -725,6 +744,16 @@ class BaseTrainer:
         # make loss
         if self.teacher is not None:
             distillation_loss = DistillationLoss(self.model, self.teacher, distiller=self.loss_type)
+            # Move distillation loss modules to correct device and add to optimizer
+            distillation_loss.distill_loss_fn = distillation_loss.distill_loss_fn.to(self.device)
+            distill_params = list(distillation_loss.distill_loss_fn.parameters())
+            if distill_params:
+                self.optimizer.add_param_group({
+                    "params": distill_params,
+                    "weight_decay": 0.0,
+                    "initial_lr": self.args.lr0,
+                })
+                LOGGER.info(f"蒸馏模块: {len(distill_params)}个可训练参数已加入optimizer")
         
         epoch = self.start_epoch
         self.optimizer.zero_grad()  # zero any resumed gradients to ensure stability on train start
@@ -1198,14 +1227,9 @@ class BaseTrainer:
                 else:  # weight (with decay)
                     g[0].append(param)
                     
-        if teacher is not None:
-            for v in teacher.modules():
-                if hasattr(v, 'bias') and isinstance(v.bias, nn.Parameter):
-                    g[2].append(v.bias)
-                if isinstance(v, bn):  # weight (no decay)
-                    g[1].append(v.weight)
-                elif hasattr(v, 'weight') and isinstance(v.weight, nn.Parameter):  # weight (with decay)
-                    g[0].append(v.weight)
+        # Note: Teacher model is frozen and should NOT be added to optimizer.
+        # Only the distillation loss modules (FeatureLoss) need optimization,
+        # and they are handled separately via DistillationLoss.
 
         if name in {"Adam", "Adamax", "AdamW", "NAdam", "RAdam"}:
             optimizer = getattr(optim, name, optim.Adam)(g[2], lr=lr, betas=(momentum, 0.999), weight_decay=0.0)

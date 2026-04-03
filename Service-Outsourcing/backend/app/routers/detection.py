@@ -19,7 +19,9 @@ from ..utils import (
 
 router = APIRouter()
 
-UPLOAD_DIR = "static/uploads"
+# 以 backend/ 目录为基准，不依赖启动目录
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+UPLOAD_DIR = os.path.join(BACKEND_DIR, "static", "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
@@ -39,12 +41,20 @@ def build_image_url(request: Request, image_path: str) -> str:
 
 def pick_preset_model(record) -> str:
     """
-    你当前数据库没有 presetModel 字段
-    这里只能先做兼容映射
-    优先用 batch_id，其次 device_id
-    后续 ML / 配置完成后再替换成真实型号字段
+    从数据库 preset_model 字段读取，若为空则从配置文件读取第一个启用型号作为降级
     """
-    return record.batch_id or record.device_id or "未配置"
+    if getattr(record, 'preset_model', None):
+        return record.preset_model
+    # 降级：从配置读取
+    try:
+        config = load_config()
+        if config.get("models"):
+            enabled = [m for m in config["models"] if m.get("enabled", True)]
+            if enabled:
+                return f"{enabled[0].get('name', '')} {enabled[0].get('model', '')}".strip() or "未配置"
+    except Exception:
+        pass
+    return "未配置"
 
 
 def to_status(record) -> str:
@@ -53,23 +63,25 @@ def to_status(record) -> str:
 
 def to_position_status(record) -> str:
     """
-    当前位置状态数据库里也没有真实字段
-    先临时返回“正常”
-    后续嵌入式 / 视觉定位就绪后再换真实值
+    从缺陷类型推断位置状态：
+    如果 defect_type 包含"偏移"则位置异常，否则正常
     """
+    dt = normalize_defect_type(record.defect_type)
+    if "偏移" in dt or "offset" in dt.lower():
+        return "偏移"
     return "正常"
 
 
 def format_current_record(record, request: Request):
     return {
         "status": to_status(record),
-        "ocrText": build_ocr_text(record.energy_level),
-        "presetModel": pick_preset_model(record),
-        "isMatch": bool(record.is_qualified),   # 临时兼容
+        "ocrText": getattr(record, 'ocr_text', '') or build_ocr_text(record.energy_level),
+        "presetModel": getattr(record, 'preset_model', '') or pick_preset_model(record),
+        "isMatch": bool(record.is_qualified),
         "defectType": normalize_defect_type(record.defect_type),
-        "positionStatus": to_position_status(record),
-        "positionX": 0,   # 临时占位
-        "positionY": 0,   # 临时占位
+        "positionStatus": getattr(record, 'position_status', '') or to_position_status(record),
+        "positionX": int((getattr(record, 'position_x', None) or 0.5) * 100),
+        "positionY": int((getattr(record, 'position_y', None) or 0.5) * 100),
         "timestamp": record.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         "imageUrl": build_image_url(request, record.image_path),
     }
@@ -78,22 +90,22 @@ def format_current_record(record, request: Request):
 def format_recent_record(record):
     return {
         "timestamp": record.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "presetModel": pick_preset_model(record),
-        "ocrText": build_ocr_text(record.energy_level),
+        "presetModel": getattr(record, 'preset_model', '') or pick_preset_model(record),
+        "ocrText": getattr(record, 'ocr_text', '') or build_ocr_text(record.energy_level),
         "status": to_status(record),
         "defectType": normalize_defect_type(record.defect_type),
-        "positionStatus": to_position_status(record),
+        "positionStatus": getattr(record, 'position_status', '') or to_position_status(record),
     }
 
 
 def format_history_record(record, request: Request):
     return {
         "timestamp": record.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "presetModel": pick_preset_model(record),
-        "ocrText": build_ocr_text(record.energy_level),
+        "presetModel": getattr(record, 'preset_model', '') or pick_preset_model(record),
+        "ocrText": getattr(record, 'ocr_text', '') or build_ocr_text(record.energy_level),
         "status": to_status(record),
         "defectType": normalize_defect_type(record.defect_type),
-        "positionStatus": to_position_status(record),
+        "positionStatus": getattr(record, 'position_status', '') or to_position_status(record),
         "imageUrl": build_image_url(request, record.image_path),
     }
 
@@ -103,11 +115,11 @@ def format_statistics_record(record):
 
     return {
         "timestamp": record.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        "presetModel": pick_preset_model(record),
+        "presetModel": getattr(record, 'preset_model', '') or pick_preset_model(record),
         "status": to_status(record),
         "hasDefect": defect_type != "无",
         "defectType": defect_type,
-        "positionStatus": to_position_status(record),
+        "positionStatus": getattr(record, 'position_status', '') or to_position_status(record),
     }
 
 
@@ -210,6 +222,7 @@ def get_config():
 @router.post("/api/config", response_model=schemas.SaveConfigResponse)
 def post_config(config: schemas.ConfigResponse):
     save_config(config.model_dump())
+    # 不再在此处重置检测器，由前端调用 /api/ml/reload 触发（fix #40）
     return {
         "success": True,
         "message": "配置保存成功"

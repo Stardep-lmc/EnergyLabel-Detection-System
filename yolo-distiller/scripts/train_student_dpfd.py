@@ -37,7 +37,7 @@ def train_student_dpfd():
 
     # DPFD蒸馏训练
     results = student_model.train(
-        data=str(PROJECT_ROOT / "datasets" / "energy_label.yaml"),
+        data=str(PROJECT_ROOT / "datasets" / "energy_label_merged.yaml"),
         epochs=250,
         batch=32,
         imgsz=640,
@@ -73,7 +73,8 @@ def train_student_dpfd():
         save_period=10,
         plots=True,
         verbose=True,
-        device=0,
+        workers=0,
+        device=0 if __import__('torch').cuda.is_available() else "cpu",
     )
 
     print(f"\nStudent DPFD蒸馏训练完成!")

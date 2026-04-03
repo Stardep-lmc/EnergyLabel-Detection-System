@@ -20,7 +20,7 @@ def train_teacher():
     model = YOLO("yolo11m.pt")
 
     results = model.train(
-        data=str(PROJECT_ROOT / "datasets" / "energy_label.yaml"),
+        data=str(PROJECT_ROOT / "datasets" / "energy_label_merged.yaml"),
         epochs=200,
         batch=16,
         imgsz=640,
@@ -53,7 +53,7 @@ def train_teacher():
         save_period=10,
         plots=True,
         verbose=True,
-        device=0,
+        device=0 if __import__('torch').cuda.is_available() else "cpu",
     )
 
     print(f"\nTeacher模型训练完成!")

@@ -25,16 +25,30 @@ python3 -c "import torch; print(f'PyTorch: {torch.__version__}, CUDA: {torch.cud
 
 # Step 1: 准备数据集
 echo ""
-echo "[Step 1] 准备数据集（5类重标注 + train/val划分）..."
+echo "[Step 1] 准备数据集..."
 cd "$PROJECT_ROOT"
-python3 scripts/prepare_dataset.py
 
-TRAIN_COUNT=$(find datasets/energy_label/images/train -name "*.jpg" 2>/dev/null | wc -l)
-VAL_COUNT=$(find datasets/energy_label/images/val -name "*.jpg" 2>/dev/null | wc -l)
+# 检查是否有原始数据源
+SRC_DIR="$PROJECT_ROOT/datasets_new_aug/datasets_new_aug_1"
+if [ -d "$SRC_DIR/images" ]; then
+    echo "  发现原始数据，执行5类重标注 + train/val划分..."
+    python3 scripts/prepare_dataset.py
+else
+    echo "  未发现原始数据目录: $SRC_DIR"
+    echo "  使用合成数据生成器创建训练数据..."
+    python3 scripts/generate_synthetic_data.py \
+        --output "$PROJECT_ROOT/datasets/energy_label" \
+        --num-train 400 \
+        --num-val 100
+fi
+
+# 验证数据集
+TRAIN_COUNT=$(find datasets/energy_label/images/train -name "*.jpg" -o -name "*.png" 2>/dev/null | wc -l)
+VAL_COUNT=$(find datasets/energy_label/images/val -name "*.jpg" -o -name "*.png" 2>/dev/null | wc -l)
 echo "  训练集: ${TRAIN_COUNT} 张, 验证集: ${VAL_COUNT} 张"
 
 if [ "$TRAIN_COUNT" -eq 0 ]; then
-    echo "错误: 数据集准备失败"
+    echo "错误: 数据集准备失败，没有找到训练图片"
     exit 1
 fi
 
@@ -62,15 +76,20 @@ if [ ! -f "$STUDENT_PATH" ]; then
 fi
 echo "  Student模型: $STUDENT_PATH"
 
-# Step 4: 导出模型
+# Step 4: 模型评估对比
 echo ""
-echo "[Step 4] 导出模型 (ONNX + TorchScript)..."
+echo "[Step 4] 模型评估对比..."
+python3 scripts/evaluate_models.py
+
+# Step 5: 导出模型
+echo ""
+echo "[Step 5] 导出模型 (ONNX + TorchScript)..."
 python3 scripts/export_model.py
 
-# Step 5: 验证推理
+# Step 6: 验证推理
 echo ""
-echo "[Step 5] 验证推理..."
-TEST_IMG=$(find datasets/energy_label/images/val -name "*.jpg" | head -1)
+echo "[Step 6] 验证推理..."
+TEST_IMG=$(find datasets/energy_label/images/val -name "*.jpg" -o -name "*.png" 2>/dev/null | head -1)
 if [ -n "$TEST_IMG" ]; then
     python3 scripts/inference_service.py --image "$TEST_IMG" --device cpu
 fi

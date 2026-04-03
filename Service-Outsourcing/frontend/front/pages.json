@@ -1,41 +1,75 @@
 {
-	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
-		{
-			"path": "pages/home/home",
-			"style": {
-				"navigationBarTitleText": "系统首页"
-			}
-		},
+	"pages": [
 		{
 			"path": "pages/index/index",
 			"style": {
-				"navigationBarTitleText": "实时监控"
+				"navigationBarTitleText": "实时监控",
+				"navigationBarBackgroundColor": "#0a0a1a",
+				"navigationBarTextStyle": "white"
 			}
 		},
 		{
-			"path":"pages/history/history",
-			"style":{
-			    "navigationBarTitleText": "历史记录"
-			}
-		},
-		{
-			"path": "pages/setup/setup",
+			"path": "pages/history/history",
 			"style": {
-				"navigationBarTitleText": "系统设置"
+				"navigationBarTitleText": "历史记录",
+				"navigationBarBackgroundColor": "#0a0a1a",
+				"navigationBarTextStyle": "white"
 			}
 		},
 		{
 			"path": "pages/statistic/statistic",
 			"style": {
-				"navigationBarTitleText": "数据统计"
+				"navigationBarTitleText": "数据统计",
+				"navigationBarBackgroundColor": "#0a0a1a",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/setup/setup",
+			"style": {
+				"navigationBarTitleText": "系统设置",
+				"navigationBarBackgroundColor": "#0a0a1a",
+				"navigationBarTextStyle": "white"
+			}
+		},
+		{
+			"path": "pages/home/home",
+			"style": {
+				"navigationBarTitleText": "系统首页",
+				"navigationBarBackgroundColor": "#0a0a1a",
+				"navigationBarTextStyle": "white"
 			}
 		}
 	],
+	"tabBar": {
+		"color": "#888888",
+		"selectedColor": "#818cf8",
+		"backgroundColor": "#0f0f1e",
+		"borderStyle": "black",
+		"list": [
+			{
+				"pagePath": "pages/index/index",
+				"text": "监控"
+			},
+			{
+				"pagePath": "pages/history/history",
+				"text": "历史"
+			},
+			{
+				"pagePath": "pages/statistic/statistic",
+				"text": "统计"
+			},
+			{
+				"pagePath": "pages/setup/setup",
+				"text": "设置"
+			}
+		]
+	},
 	"globalStyle": {
-		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "uni-app",
-		"navigationBarBackgroundColor": "#F8F8F8",
-		"backgroundColor": "#F8F8F8"
+		"navigationBarTextStyle": "white",
+		"navigationBarTitleText": "能效标签检测",
+		"navigationBarBackgroundColor": "#0a0a1a",
+		"backgroundColor": "#0a0a1a"
 	},
 	"uniIdRouter": {}
 }

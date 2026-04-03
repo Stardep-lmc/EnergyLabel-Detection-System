@@ -1,424 +1,155 @@
 <template>
-  <!--历史记录页面-->
-  <scroll-view class="historyboard" scroll-y="true">
-    <!--标题-->
-    <view class="title">历史检测记录</view>
-    <view class="intro">⏱️仅显示近一个月的数据</view>
-
-    <!--筛选栏-->
-    <view class="list-card">
-      <view class="choice">
-        <button @click="clearFilters" class="all-btn">📄️ 全部</button>
-
-        <picker @change="filterByDate" mode="date" :start="minDate" :end="maxDate" class="pick">
-          <view class="choice-btn">📅 按日期筛选</view>
-        </picker>
-
-        <picker @change="filterByStatus" :range="statusOptions" range-key="label" class="pick">
-          <view class="choice-btn">⭕ 按状态筛选</view>
-        </picker>
-      </view>
+  <view class="page">
+    <view class="header">
+      <text class="title">历史记录</text>
+      <text class="subtitle">检测记录查询</text>
     </view>
 
-    <!--记录列表卡片-->
-    <view class="list-card">
-      <text class="list-title">📋 检测记录</text>
+    <view class="filter-bar">
+      <picker mode="selector" :range="statusOptions" :value="statusIdx" @change="onStatusChange">
+        <view class="filter-btn">{{statusOptions[statusIdx]}} ▾</view>
+      </picker>
+      <view class="count">共 {{total}} 条</view>
+    </view>
 
-      <view class="list-data">
-        <view class="type">
-          <text class="type-num">序号</text>
-          <text class="type-time">时间</text>
-          <text class="type-sign">型号</text>
-          <text class="type-rst">结果</text>
-          <text class="type-fault">缺陷</text>
+    <scroll-view scroll-y class="list-area" @scrolltolower="loadMore">
+      <view v-for="(item,idx) in records" :key="idx" class="record-card">
+        <view class="rc-top">
+          <text class="rc-time">{{item.timestamp}}</text>
+          <text class="rc-badge" :class="item.status==='OK'?'ok':'ng'">{{item.status==='OK'?'合格':'不合格'}}</text>
         </view>
-
-        <view v-for="(item,index) in completeList" :key="item.id" class="list-item">
-          <text class="number">{{ (currentPage-1)*pageSize + index + 1 }}</text>
-          <text class="item-time">{{ formatTime(item.timestamp) }}</text>
-          <text class="item-model">{{ item.productModel || '--' }}</text>
-          <text class="item-label">{{ item.ocrText }}</text>
-          <text class="item-stu" :class="item.status">{{ item.status === 'OK' ? 'OK' : 'NG' }}</text>
-          <text v-if="item.defectType" class="defect-badge">{{ item.defectType }}</text>
-        </view>
-
-        <!--加载与结束状态-->
-        <view class="load-more" v-if="completeList.length > 0">
-          <text v-if="loading">加载中...</text>
-          <text v-else-if="noMore">--- 没有更多了 ---</text>
-        </view>
-
-        <!--无检测记录的情况-->
-        <view class="empty-state" v-if="completeList.length === 0 && !loading">
-          <text>-- 暂无检测记录 --</text>
-        </view>
-
-        <!--分页信息-->
-        <view class="page-info" v-if="totalPages>1">
-          <view class="page-btns">
-            <button class="page-btn" @click="prePage" :disabled="currentPage === 1 || loading"><</button>
-            <text class="page-status">第 {{ currentPage }}/{{ totalPages }} 页</text>
-            <button class="page-btn" @click="nextPage" :disabled="currentPage === totalPages || loading">></button>
-            <text class="page-total">共 {{ totalRecords }} 条</text>
+        <view class="rc-body">
+          <view class="rc-row">
+            <text class="rc-label">型号</text>
+            <text class="rc-val">{{item.presetModel||'--'}}</text>
+          </view>
+          <view class="rc-row">
+            <text class="rc-label">标签</text>
+            <text class="rc-val">{{item.ocrText||'--'}}</text>
+          </view>
+          <view class="rc-row">
+            <text class="rc-label">缺陷</text>
+            <text class="rc-val">{{item.defectType||'无'}}</text>
+          </view>
+          <view class="rc-row">
+            <text class="rc-label">位置</text>
+            <text class="rc-val" :class="item.positionStatus==='正常'?'val-ok':'val-ng'">{{item.positionStatus}}</text>
           </view>
         </view>
       </view>
-    </view>
-  </scroll-view>
+
+      <view v-if="records.length===0" class="empty">
+        <text class="empty-icon">📋</text>
+        <text class="empty-text">暂无记录</text>
+      </view>
+
+      <view v-if="loading" class="loading-bar">
+        <text class="loading-text">加载中...</text>
+      </view>
+    </scroll-view>
+  </view>
 </template>
 
 <script>
 export default {
   data() {
-    const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-
-    const formatDate = (date) => {
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    };
-
     return {
-      allHistory: [],
-      completeList: [],
-      currentPage: 1,
-      pageSize: 25,
+      statusOptions: ['全部', '合格', '不合格'],
+      statusIdx: 0,
+      statusMap: ['ALL', 'OK', 'NG'],
+      records: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
       loading: false,
-      noMore: false,
-      totalRecords: 0,
-      totalPages: 0,
-      currentStatusFilter: { label: '全部记录', value: 'ALL' },
-      currentDateFilter: '',
-      statusOptions: [
-        { label: '全部记录', value: 'ALL' },
-        { label: '合格 OK', value: 'OK' },
-        { label: '不合格 NG', value: 'NG' }
-      ],
-      minDate: formatDate(thirtyDaysAgo),
-      maxDate: formatDate(today)
+      hasMore: true,
     }
   },
-
   onShow() {
-    this.loadPage();
+    this.page = 1
+    this.records = []
+    this.fetchHistory()
   },
-
   methods: {
-    // 通用加载当前页
-    loadPage() {
-      this.loading = true;
-      const today = new Date();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(today.getDate() - 30);
-
-      uni.request({
-        url: '/api/history', // 替换为实际API
-        method: 'GET',
-        data: {
-          page: this.currentPage,
-          pageSize: this.pageSize,
-          startDate: this.currentDateFilter || thirtyDaysAgo.toISOString().split('T')[0],
-          endDate: today.toISOString().split('T')[0],
-          statusFilter: this.currentStatusFilter.value
-        },
-        success: (res) => {
-          this.loading = false;
-          if (res.statusCode === 200 && res.data) {
-            this.allHistory = res.data.records || [];
-            this.totalRecords = res.data.total || 0;
-            this.totalPages = Math.ceil(this.totalRecords / this.pageSize);
-
-            this.completeList = [...this.allHistory];
-            this.noMore = this.currentPage >= this.totalPages;
+    onStatusChange(e) {
+      this.statusIdx = e.detail.value
+      this.page = 1
+      this.records = []
+      this.fetchHistory()
+    },
+    async fetchHistory() {
+      if (this.loading) return
+      this.loading = true
+      try {
+        const params = `page=${this.page}&pageSize=${this.pageSize}&statusFilter=${this.statusMap[this.statusIdx]}`
+        const res = await uni.request({ url: `/api/history?${params}`, method: 'GET' })
+        if (res.statusCode === 200) {
+          const d = res.data
+          this.total = d.total
+          if (this.page === 1) {
+            this.records = d.records || []
           } else {
-            uni.showToast({ title: '获取数据失败', icon: 'none' });
+            this.records = [...this.records, ...(d.records || [])]
           }
-        },
-        fail: () => {
-          this.loading = false;
-          uni.showToast({ title: '网络请求失败', icon: 'none' });
+          this.hasMore = this.records.length < d.total
         }
-      });
-    },
-
-    prePage() {
-      if (this.currentPage > 1 && !this.loading) {
-        this.currentPage--;
-        this.loadPage();
+      } catch (e) {
+        console.error(e)
       }
+      this.loading = false
     },
-
-    nextPage() {
-      if (this.currentPage < this.totalPages && !this.loading) {
-        this.currentPage++;
-        this.loadPage();
-      }
-    },
-
-    formatTime(timestamp) {
-      const date = new Date(timestamp);
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hour = String(date.getHours()).padStart(2, '0');
-      const minute = String(date.getMinutes()).padStart(2, '0');
-      return `${month}-${day} ${hour}:${minute}`;
-    },
-
-    filterByStatus(e) {
-      const index = e.detail.value;
-      this.currentStatusFilter = this.statusOptions[index];
-      this.currentPage = 1;
-      this.loadPage();
-    },
-
-    filterByDate(e) {
-      const selectedDate = e.detail.value;
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const minDate = thirtyDaysAgo.toISOString().split('T')[0];
-
-      if (selectedDate < minDate) {
-        uni.showToast({ title: '只能查看最近30天的记录', icon: 'none' });
-        return;
-      }
-
-      this.currentDateFilter = selectedDate;
-      this.currentPage = 1;
-      this.loadPage();
-    },
-
-    clearFilters() {
-      this.currentStatusFilter = { label: '全部记录', value: 'ALL' };
-      this.currentDateFilter = '';
-      this.currentPage = 1;
-      this.loadPage();
+    loadMore() {
+      if (!this.hasMore || this.loading) return
+      this.page++
+      this.fetchHistory()
     }
   }
 }
 </script>
 
-<style> 
-.historyboard { 
-	font-family: Consolas; 
-	height: 145vh; 
-    background-color: #eee; 
-	} 
-.title { 
-	font-size: 26px; 
-	font-weight: bold; 
-	margin: 5px; 
-	} 
-.intro { 
-	font-size:14px; 
-	color:#808080; 
-	margin:5px; 
-	background-color:#ffffff; 
-	border-radius:10px; 
-	padding:2px 4px; 
-	width:165px; 
-	} 
-.choice { 
-	display: flex; 
-	gap: 0; 
-	margin: 5px; 
-	border: 2px dashed #808080; 
-	border-radius: 8px; 
-	height: 50px; /* 保持固定高度，确保格子一致 */ 
-	box-sizing: border-box; 
-	align-items: stretch; 
-	} /* 子元素不圆角，避免分隔线看起来弯 */ 
-.choice > * { 
-	border-radius: 0; 
-	box-sizing: border-box; 
-	} /* 左右两端保留外框圆角 */ 
-.choice > *:first-child { 
-	border-top-left-radius: 8px; 
-	border-bottom-left-radius: 8px; 
-	} 
-.choice > *:last-child { 
-	border-top-right-radius: 8px; 
-	border-bottom-right-radius: 8px; 
-	} /* 让每个区块之间有虚线分隔（最后一个不需要） 线条粗细与外框一致 */ 
-.choice > *:not(:last-child) { 
-	border-right: 2px dashed #808080; 
-	} 
-.all-btn { 
-	font-size: 12px; 
-	border: none; /* 移除边框 */ 
-	outline: none; 
-	background-color: transparent; 
-	margin: 0; /* 移除margin，使用padding控制 */ 
-	padding: 0; 
-	text-align: center; 
-	flex: 0 0 20%; /* 保持20%宽度 */
-	height: 100%; 
-	min-width: 0; 
-	display: flex; 
-	align-items: center; 
-	justify-content: center; 
-	box-sizing: border-box; 
-	} 
-.pick { 
-	flex: 0 0 40%; /* 保持40%宽度 */ 
-	height: 100%; 
-	min-width: 0; 
-	display: flex; 
-	align-items: center; 
-	justify-content: center; 
-	box-sizing: border-box;
-	 } 
-.choice-btn { 
-	background-color: transparent; 
-	padding: 0 8px; 
-	font-size: 14px; 
-	color: #666; 
-	border: none; /* 移除边框 */ 
-	outline: none; 
-	height: 100%; 
-	width: 100%; 
-	line-height: 50px; 
-	text-align: center; 
-	display: flex; 
-	align-items: center; 
-	justify-content: center; 
-	box-sizing: border-box;
-	 } 
-.list-card { 
-	background-color: #ffffff; 
-	color: #000000; 
-	font-family: Consolas;
-	border-radius: 16px; 
-	padding: 16px; 
-	margin: 5px 0 10px 0; 
-	box-shadow: 1px 1px 1px 1px #808080; 
-	border: 1px solid #ffffff; 
-	} 
-.list-title { 
-	margin-bottom:10px; 
-	} 
-.type { 
-	display:flex; 
-	align-items: center; 
-	justify-content: flex-start;
-	text-align:center; 
-	gap:2px; 
-	} 
-.type-num { 
-	width:35px; 
-	text-align:center; 
-	} 
-.type-time { 
-	width: 60px; 
-	text-align: center; 
-	} 
-.type-sign { 
-	width: 60px; 
-	text-align: center;
-	 } 
-.type-rst { 
-	width: 45px; 
-	text-align: center; 
-	} 
-.type-fault { 
-	width: 50px; 
-	text-align: center; 
-	} 
-.type-position { 
-	width: 50px; 
-	text-align: center; 
-	} 
-.list-data { 
-	border-radius: 8px; 
-	border: 2px dashed #808080; 
-	display: flex; 
-	flex-direction: column; 
-	margin: 2px 0; 
-	padding: 12px; 
-	background-color: #ffffff;
-	 } 
-.list-item { 
-	display: flex; 
-	align-items: center;
-	padding: 8px 0; 
-	border-bottom: 1px solid #000000; 
-	} 
-.number { 
-	width:25px; 
-	border-radius:50%;
-	border:1px solid #ffffff; 
-	background-color:#eee; 
-	padding:1px; 
-	text-align:center; 
-	margin-right:15px; 
-	} 
-.item-time { 
-	width:60px; 
-	color:#b3b3b3;
-	} 
-.item-model { 
-	width: 60px; 
-	text-align: center; 
-	} 
-.item-label { 
-	width:45px; 
-	text-align: center; 
-	} 
-.item-stu { 
-	width:50px; 
-	text-align: center; 
-	} 
-.item-stu.OK { 
-	color:#000000; 
-	} 
-.item-stu.NG {
-	color:#ff0000; 
-	} 
-.defect-badge { 
-	width:50px; 
-	text-align:center;
-	 } 
-.load-more { 
-	text-align:center;
-	color:#b3b3b3;
-	margin:5px; 
-	} 
-.empty-state{ 
-	color:#808080; 
-	text-align:center;
-	margin:5px; 
-	} 
-.page-info { 
-	text-align:center; 
-	margin-top:5px; 
-	} 
-.page-btns { 
-	margin:10px; 
-	display:flex; 
-	text-align:center; 
-	justify-content:center; 
-	height:50px; 
-	} 
-.page-btn { 
-	font-size:12px; 
-	border-radius:50%; 
-	background-color:#eee; 
-	margin:5px; 
-	padding:1px; 
-	text-align:center; 
-	width:30px; 
-	} 
-.page-btn:disabled { 
-	curser:not-allowed;
-	background:#ccc; 
-	} 
-.page-status { 
-	margin-top:10px; 
-	} 
-.page-total { 
-	margin-left:10px;
-	margin-top:10px;
-	} 
+<style scoped>
+.page { min-height: 100vh; background: #0a0a1a; padding: 0 0 20rpx; }
+.header { padding: 30rpx; }
+.title { font-size: 40rpx; font-weight: 700; color: #fff; }
+.subtitle { font-size: 22rpx; color: #888; margin-top: 4rpx; }
+
+.filter-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 30rpx 20rpx;
+}
+.filter-btn {
+  padding: 10rpx 24rpx; border-radius: 30rpx; font-size: 24rpx;
+  background: rgba(99,102,241,.1); border: 1rpx solid rgba(99,102,241,.25);
+  color: #818cf8;
+}
+.count { font-size: 22rpx; color: #888; }
+
+.list-area { height: calc(100vh - 240rpx); }
+
+.record-card {
+  margin: 0 24rpx 16rpx; padding: 24rpx;
+  background: rgba(15,52,96,.6); border-radius: 16rpx;
+  border: 1rpx solid rgba(255,255,255,.06);
+}
+.rc-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.rc-time { font-size: 22rpx; color: #888; }
+.rc-badge {
+  padding: 4rpx 16rpx; border-radius: 20rpx; font-size: 20rpx; font-weight: 600;
+}
+.rc-badge.ok { background: rgba(16,185,129,.1); color: #10b981; }
+.rc-badge.ng { background: rgba(239,68,68,.1); color: #ef4444; }
+
+.rc-body { display: flex; flex-direction: column; gap: 8rpx; }
+.rc-row { display: flex; justify-content: space-between; }
+.rc-label { font-size: 24rpx; color: #888; }
+.rc-val { font-size: 24rpx; color: #fff; }
+.val-ok { color: #10b981; }
+.val-ng { color: #ef4444; }
+
+.empty { display: flex; flex-direction: column; align-items: center; padding: 80rpx 0; }
+.empty-icon { font-size: 60rpx; }
+.empty-text { font-size: 26rpx; color: #666; margin-top: 16rpx; }
+
+.loading-bar { text-align: center; padding: 20rpx; }
+.loading-text { font-size: 22rpx; color: #888; }
 </style>

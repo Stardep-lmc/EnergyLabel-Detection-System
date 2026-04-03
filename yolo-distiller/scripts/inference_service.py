@@ -10,7 +10,8 @@
 4. 置信度评估
 5. 检测结果结构化输出
 """
-import sys
+import os
+import sys 
 import time
 import json
 import logging
@@ -25,8 +26,21 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from ultralytics import YOLO
 
+# OCR服务（可选）
+_ocr_available = False
+try:
+    from ocr_service import recognize as ocr_recognize, is_available as ocr_is_available
+    _ocr_available = True
+except ImportError:
+    _ocr_available = False
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("inference_service")
+
+if _ocr_available:
+    logger.info("OCR服务已加载")
+else:
+    logger.warning("PaddleOCR 未安装，OCR功能不可用。安装方式: pip install paddleocr paddlepaddle")
 
 # 类别映射
 CLASS_NAMES = {
@@ -63,6 +77,18 @@ class DetectionResult:
 
 
 @dataclass
+class OCRInfo:
+    """OCR识别信息"""
+    energy_level: Optional[str] = None
+    energy_grade: Optional[str] = None
+    product_model: Optional[str] = None
+    annual_consumption: Optional[str] = None
+    brand: Optional[str] = None
+    raw_texts: Optional[List[str]] = None
+    ocr_confidence: float = 0.0
+
+
+@dataclass
 class InferenceOutput:
     """完整推理输出"""
     image_path: str
@@ -74,6 +100,7 @@ class InferenceOutput:
     total_labels: int
     inference_time_ms: float
     timestamp: str
+    ocr_info: Optional[OCRInfo] = None
 
 
 class EnergyLabelDetector:
@@ -127,16 +154,58 @@ class EnergyLabelDetector:
         dy = abs(cy - self.standard_position["cy"])
         return dx <= self.position_tolerance and dy <= self.position_tolerance
 
-    def detect(self, image_path: str) -> InferenceOutput:
+    def detect(self, image_path: str, enable_ocr: bool = True, brightness_offset: float = 0.0) -> InferenceOutput:
         """
         对单张图片进行检测
-        返回结构化的检测结果
+        返回结构化的检测结果（YOLO检测 + OCR识别）
+
+        Args:
+            brightness_offset: 光照补偿值（-5~+5），每单位对应 beta=25 的亮度调整
         """
         start_time = time.time()
 
-        # YOLO推理
+        # 光照补偿预处理：在推理前调整图片亮度
+        actual_inference_path = image_path
+        if brightness_offset != 0:
+            try:
+                import cv2
+                img = cv2.imread(image_path)
+                if img is not None:
+                    # alpha=1.0 保持对比度不变，beta 控制亮度偏移
+                    img = cv2.convertScaleAbs(img, alpha=1.0, beta=brightness_offset * 25)
+                    # 写入临时文件，不修改原图
+                    import tempfile
+                    fd, tmp_path = tempfile.mkstemp(suffix=".jpg")
+                    os.close(fd)
+                    cv2.imwrite(tmp_path, img)
+                    actual_inference_path = tmp_path
+                    logger.info(f"光照补偿: offset={brightness_offset}, beta={brightness_offset * 25}")
+            except ImportError:
+                logger.warning("cv2 未安装，跳过光照补偿")
+            except Exception as e:
+                logger.warning(f"光照补偿失败: {e}")
+
+        # OCR识别（使用经过光照补偿的图片，与YOLO保持一致）
+        ocr_info = None
+        if enable_ocr and _ocr_available:
+            try:
+                ocr_result = ocr_recognize(actual_inference_path)
+                ocr_info = OCRInfo(
+                    energy_level=ocr_result.energy_level,
+                    energy_grade=ocr_result.energy_grade,
+                    product_model=ocr_result.product_model,
+                    annual_consumption=ocr_result.annual_consumption,
+                    brand=ocr_result.brand,
+                    raw_texts=ocr_result.raw_texts,
+                    ocr_confidence=ocr_result.confidence,
+                )
+                logger.info(f"OCR识别: 等级={ocr_result.energy_level}, 型号={ocr_result.product_model}")
+            except Exception as e:
+                logger.warning(f"OCR识别失败: {e}")
+
+        # YOLO推理（使用可能经过光照补偿的图片）
         results = self.model.predict(
-            source=image_path,
+            source=actual_inference_path,
             conf=self.conf_threshold,
             iou=self.iou_threshold,
             device=self.device,
@@ -197,6 +266,13 @@ class EnergyLabelDetector:
         else:
             position_status = "正常"
 
+        # 清理临时文件
+        if actual_inference_path != image_path and os.path.exists(actual_inference_path):
+            try:
+                os.unlink(actual_inference_path)
+            except OSError:
+                pass
+
         output = InferenceOutput(
             image_path=image_path,
             detections=detections,
@@ -207,23 +283,28 @@ class EnergyLabelDetector:
             total_labels=len(detections),
             inference_time_ms=round(inference_time, 2),
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+            ocr_info=ocr_info,
         )
 
         return output
 
-    def detect_batch(self, image_paths: List[str]) -> List[InferenceOutput]:
-        """批量检测"""
-        return [self.detect(p) for p in image_paths]
+    def detect_batch(self, image_paths: List[str], brightness_offset: float = 0.0) -> List[InferenceOutput]:
+        """批量检测（fix #45: 支持光照补偿参数传递）"""
+        return [self.detect(p, brightness_offset=brightness_offset) for p in image_paths]
 
-    def to_backend_format(self, output: InferenceOutput) -> dict:
+    def to_backend_format(self, output: InferenceOutput, device_id: str = "cam_01", batch_id: str = "default_batch") -> dict:
         """
         将推理结果转换为后端API所需的格式
         对接 Service-Outsourcing/backend 的 DetectionRecordCreate schema
         """
-        # 取最高置信度的检测结果
+        # 取位置坐标：优先取 class_id=0（正常标签）的框，否则取最高置信度框
         best_det = None
         if output.detections:
-            best_det = max(output.detections, key=lambda d: d.confidence)
+            normal_dets = [d for d in output.detections if d.class_id == 0]
+            if normal_dets:
+                best_det = max(normal_dets, key=lambda d: d.confidence)
+            else:
+                best_det = max(output.detections, key=lambda d: d.confidence)
 
         # 缺陷类型字符串
         if output.defect_types:
@@ -231,12 +312,28 @@ class EnergyLabelDetector:
         else:
             defect_str = "无"
 
-        # 能效等级（从OCR或预设，这里暂用1.0占位）
+        # 能效等级（从OCR提取，降级为1.0）
         energy_level = 1.0
+        ocr_text = ""
+        product_model = ""
+
+        if output.ocr_info:
+            # 从OCR结果提取能效等级数值
+            if output.ocr_info.energy_level:
+                try:
+                    level_num = int(output.ocr_info.energy_level[0])
+                    energy_level = float(level_num)
+                except (ValueError, IndexError):
+                    pass
+                ocr_text = output.ocr_info.energy_level
+            if output.ocr_info.energy_grade:
+                ocr_text = f"{ocr_text} ({output.ocr_info.energy_grade})" if ocr_text else output.ocr_info.energy_grade
+            if output.ocr_info.product_model:
+                product_model = output.ocr_info.product_model
 
         return {
-            "device_id": "cam_01",
-            "batch_id": "default_batch",
+            "device_id": device_id,
+            "batch_id": batch_id,
             "image_path": output.image_path,
             "energy_level": energy_level,
             "defect_type": defect_str,
@@ -248,6 +345,10 @@ class EnergyLabelDetector:
             "position_y": best_det.bbox_norm[1] if best_det else 0,
             "inference_time_ms": output.inference_time_ms,
             "total_labels": output.total_labels,
+            # OCR字段
+            "ocr_text": ocr_text,
+            "product_model": product_model,
+            "ocr_available": _ocr_available,
         }
 
 
