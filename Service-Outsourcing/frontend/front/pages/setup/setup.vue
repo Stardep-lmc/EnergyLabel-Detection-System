@@ -1,587 +1,218 @@
 <template>
-  <scroll-view class="setup-board" scroll-y="true">
-    <!-- 标题 -->
+  <scroll-view class="page" scroll-y="true">
     <view class="header">
       <text class="title">系统配置</text>
+      <text class="subtitle">产品型号、检测参数与相机设置</text>
     </view>
-	
-    <!-- 1. 预设产品型号管理 -->
-    <view class="config-card">
-      <view class="card-header">
-        <text class="card-title">📋 预设产品型号</text>
-        <text class="card-desc">新增或修改产品对应的标准能效等级</text>
-      </view>
-      
+
+    <!-- 预设产品型号 -->
+    <view class="card">
+      <text class="section-title">📋 预设产品型号</text>
       <view class="model-list">
-        <view v-for="(item, index) in presetModels" :key="index" class="model-item">
+        <view v-for="(item, idx) in presetModels" :key="idx" class="model-item">
           <view class="model-info">
             <text class="model-name">{{ item.name }}</text>
             <text class="model-desc">{{ item.model }}</text>
           </view>
-          <view class="model-config">
-            <text class="label">标准能效：</text>
-            <picker :range="energyLevels" @change="(e) => updateModelLevel(index, e)">
-              <view class="picker-value">{{ item.standardLabel }}</view>
+          <view class="model-right">
+            <picker :range="energyLevels" :value="energyLevels.indexOf(item.standardLabel)" @change="(e) => item.standardLabel = energyLevels[e.detail.value]">
+              <view class="picker-val">{{ item.standardLabel }}</view>
             </picker>
-          </view>
-          <view class="model-status">
-            <text class="label">启用：</text>
-            <switch :checked="item.enabled" @change="(e) => toggleModel(index, e)" />
+            <switch :checked="item.enabled" @change="(e) => item.enabled = e.detail.value" />
+            <text v-if="presetModels.length > 1" class="del-btn" @click="presetModels.splice(idx, 1)">✕</text>
           </view>
         </view>
       </view>
-      
-      <view class="add-model">
-        <input 
-          v-model="newModel.name" 
-          placeholder="请输入产品名称（如：冰箱）" 
-          class="model-input"
-        />
-        <input 
-          v-model="newModel.model" 
-          placeholder="请输入产品型号（如：BCD-520W）" 
-          class="model-input"
-        />
-        <picker :range="energyLevels" @change="onNewModelLevelChange">
-          <view class="picker-btn">{{ newModel.standardLabel || '请选择能效等级' }}</view>
+      <view class="add-row">
+        <input v-model="newModel.name" placeholder="产品名称" class="input-field" />
+        <input v-model="newModel.model" placeholder="产品型号" class="input-field" />
+        <picker :range="energyLevels" @change="(e) => newModel.standardLabel = energyLevels[e.detail.value]">
+          <view class="picker-val">{{ newModel.standardLabel }}</view>
         </picker>
-        <button class="add-btn" @click="addNewModel">➕ 添加</button>
+        <button class="btn-add" @click="addModel">+ 添加</button>
       </view>
     </view>
 
-    <!-- 2. 检测参数配置 -->
-    <view class="config-card">
-      <view class="card-header">
-        <text class="card-title">⚙️ 检测参数</text>
-        <text class="card-desc">调整检测灵敏度、容忍度等</text>
-      </view>
-      
-      <!-- 位置检测容忍度 -->
+    <!-- 检测参数 -->
+    <view class="card">
+      <text class="section-title">⚙️ 检测参数</text>
       <view class="param-item">
-        <view class="param-info">
+        <view class="param-top">
           <text class="param-name">📍 位置偏移容忍度</text>
           <text class="param-desc">标签偏离中心多少%算异常</text>
         </view>
-        <view class="param-control">
-          <slider 
-            :value="positionTolerance" 
-            @change="(e) => positionTolerance = e.detail.value"
-            min="0" max="20" step="1"
-            style="width: 200px;"
-          />
-          <text class="param-value">{{ positionTolerance }}%</text>
+        <view class="param-ctrl">
+          <slider :value="positionTolerance" @change="(e) => positionTolerance = e.detail.value" min="0" max="20" step="1" activeColor="#6366f1" />
+          <text class="param-val">{{ positionTolerance }}%</text>
         </view>
       </view>
-      
-      <!-- 缺陷检测灵敏度 -->
       <view class="param-item">
-        <view class="param-info">
+        <view class="param-top">
           <text class="param-name">🔍 缺陷检测灵敏度</text>
           <text class="param-desc">越高越容易检出微小缺陷</text>
         </view>
-        <view class="param-control">
-          <picker :range="sensitivityLevels" @change="(e) => sensitivity = sensitivityLevels[e.detail.value]">
-            <view class="picker-value">{{ sensitivity }}</view>
-          </picker>
+        <view class="chip-row">
+          <text v-for="s in sensitivityLevels" :key="s" class="chip" :class="{ active: sensitivity === s }" @click="sensitivity = s">{{ s }}</text>
         </view>
       </view>
-      
-      <!-- 光照补偿 -->
       <view class="param-item">
-        <view class="param-info">
+        <view class="param-top">
           <text class="param-name">💡 光照补偿</text>
           <text class="param-desc">适应不同环境光线</text>
         </view>
-        <view class="param-control">
-          <slider 
-            :value="lightCompensation" 
-            @change="(e) => lightCompensation = e.detail.value"
-            min="-5" max="5" step="1"
-            style="width: 200px;"
-          />
-          <text class="param-value">{{ lightCompensation > 0 ? '+' : '' }}{{ lightCompensation }}</text>
+        <view class="param-ctrl">
+          <slider :value="lightCompensation" @change="(e) => lightCompensation = e.detail.value" min="-5" max="5" step="1" activeColor="#6366f1" />
+          <text class="param-val">{{ lightCompensation > 0 ? '+' : '' }}{{ lightCompensation }}</text>
         </view>
       </view>
     </view>
 
-    <!-- 3. 相机参数配置 -->
-    <view class="config-card">
-      <view class="card-header">
-        <text class="card-title">📷 相机参数</text>
-        <text class="card-desc">适应不同光照和拍摄距离</text>
-      </view>
-      
+    <!-- 相机参数 -->
+    <view class="card">
+      <text class="section-title">📷 相机参数</text>
       <view class="param-item">
-        <view class="param-info">
-          <text class="param-name">🔆 曝光</text>
-          <text class="param-desc">-3 到 +3</text>
-        </view>
-        <view class="param-control">
-          <slider 
-            :value="exposure" 
-            @change="(e) => exposure = e.detail.value"
-            min="-3" max="3" step="1"
-            style="width: 200px;"
-          />
-          <text class="param-value">{{ exposure > 0 ? '+' : '' }}{{ exposure }}</text>
+        <view class="param-top"><text class="param-name">🔆 曝光</text></view>
+        <view class="param-ctrl">
+          <slider :value="exposure" @change="(e) => exposure = e.detail.value" min="-3" max="3" step="1" activeColor="#6366f1" />
+          <text class="param-val">{{ exposure > 0 ? '+' : '' }}{{ exposure }}</text>
         </view>
       </view>
-      
       <view class="param-item">
-        <view class="param-info">
-          <text class="param-name">📱分辨率</text>
-        </view>
-        <view class="param-control">
-          <picker :range="resolutions" @change="(e) => resolution = resolutions[e.detail.value]">
-            <view class="picker-value">{{ resolution }}</view>
-          </picker>
+        <view class="param-top"><text class="param-name">📱 分辨率</text></view>
+        <view class="chip-row">
+          <text v-for="r in resolutions" :key="r" class="chip" :class="{ active: resolution === r }" @click="resolution = r">{{ r }}</text>
         </view>
       </view>
     </view>
 
-    <!-- 4. 保存按钮 -->
-    <view class="save-section">
-      <button class="save-btn" @click="saveConfig">💾 保存配置</button>
-      <button class="reset-btn" @click="resetConfig">↺ 恢复默认</button>
+    <!-- 操作按钮 -->
+    <view class="action-row">
+      <button class="btn-save" @click="saveConfig">💾 保存配置</button>
+      <button class="btn-reset" @click="resetConfig">↺ 恢复默认</button>
     </view>
   </scroll-view>
 </template>
 
-<script>
-export default {
-  data() {
-    return {
-      // 能效等级选项
-      energyLevels: ['A++', 'A+', 'A', 'B', 'C'],
-      
-      // 灵敏度选项
-      sensitivityLevels: ['低', '中', '高'],
-      
-      // 分辨率选项
-      resolutions: ['640x480', '1280x720', '1920x1080'],
-      
-      // 预设产品型号（初始默认值，后端加载成功后可以覆盖）
-      presetModels: [
-        { name: '冰箱', model: 'BCD-520W', standardLabel: 'A++', enabled: true }
-      ],
-      
-      // 新增型号表单
-      newModel: {
-        name: '',
-        model: '',
-        standardLabel: 'A++'
-      },
-      
-      // 检测参数
-      positionTolerance: 10,
-      sensitivity: '中',
-      lightCompensation: 0,
-      
-      // 相机参数
-      exposure: 0,
-      resolution: '1280x720',
+<script setup>
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import api from '../../utils/api.js'
 
-      // 后端默认配置备份（用于恢复默认时直接使用）
-      defaultConfig: null
-    }
-  },
-  
-  onLoad() {
-    this.fetchPresetData()
-  },
-  
-  methods: {
-    fetchPresetData() {
-      uni.request({
-        url: '/api/config', // 替换为实际的API地址
-        method: 'GET',
-        success: (res) => {
-          if (res.statusCode === 200) {
-            const data = res.data
-            this.presetModels = data.models || this.presetModels
-            this.positionTolerance = data.positionTolerance || 10
-            this.sensitivity = data.sensitivity || '中'
-            this.lightCompensation = data.lightCompensation || 0
-            this.exposure = data.camera?.exposure || 0
-            this.resolution = data.camera?.resolution || '1280x720'
+const energyLevels = ['A++', 'A+', 'A', 'B', 'C']
+const sensitivityLevels = ['低', '中', '高']
+const resolutions = ['640x480', '1280x720', '1920x1080']
 
-            // 备份后端默认配置，用于恢复默认时使用
-            this.defaultConfig = {
-              models: JSON.parse(JSON.stringify(this.presetModels)),
-              positionTolerance: this.positionTolerance,
-              sensitivity: this.sensitivity,
-              lightCompensation: this.lightCompensation,
-              camera: {
-                exposure: this.exposure,
-                resolution: this.resolution
-              }
-            }
-          } else {
-            console.error('获取预设数据失败', res)
-          }
-        },
-        fail: (err) => {
-          console.error('请求失败', err)
-        }
-      })
-    },
-    
-    // 更新型号能效等级
-    updateModelLevel(index, e) {
-      const levelIndex = e.detail.value
-      this.presetModels[index].standardLabel = this.energyLevels[levelIndex]
-    },
-    
-    // 切换型号启用状态
-    toggleModel(index, e) {
-      this.presetModels[index].enabled = e.detail.value
-    },
-    
-    // 新增型号的能效等级选择
-    onNewModelLevelChange(e) {
-      this.newModel.standardLabel = this.energyLevels[e.detail.value]
-    },
-    
-    // 添加新型号
-    addNewModel() {
-      if (!this.newModel.name || !this.newModel.model) {
-        uni.showToast({
-          title: '请填写完整信息',
-          icon: 'none'
-        })
-        return
-      }
-      
-      this.presetModels.push({
-        name: this.newModel.name,
-        model: this.newModel.model,
-        standardLabel: this.newModel.standardLabel,
-        enabled: true
-      })
-      
-      // 清空表单
-      this.newModel = {
-        name: '',
-        model: '',
-        standardLabel: 'A++'
-      }
-      
-      uni.showToast({
-        title: '添加成功',
-        icon: 'success'
-      })
-    },
-    
-    // 保存配置
-    saveConfig() {
-      const configData = {
-        models: this.presetModels,
-        positionTolerance: this.positionTolerance,
-        sensitivity: this.sensitivity,
-        lightCompensation: this.lightCompensation,
-        camera: {
-          exposure: this.exposure,
-          resolution: this.resolution
-        }
-      }
-      
-      uni.request({
-        url: '/api/config', // 替换为实际的API地址
-        method: 'POST',
-        data: configData,
-        success: (res) => {
-          if (res.statusCode === 200) {
-            uni.showToast({
-              title: '配置已保存',
-              icon: 'success'
-            })
-            // 更新 defaultConfig 为最新保存值
-            this.defaultConfig = JSON.parse(JSON.stringify(configData))
-          } else {
-            uni.showToast({
-              title: '保存失败',
-              icon: 'none'
-            })
-          }
-        },
-        fail: (err) => {
-          console.error('保存请求失败', err)
-          uni.showToast({
-            title: '网络请求失败',
-            icon: 'none'
-          })
-        }
-      })
-    },
-    
-    // 恢复默认
-    resetConfig() {
-      uni.showModal({
-        title: '提示',
-        content: '确定要恢复默认配置吗？',
-        success: (res) => {
-          if (res.confirm) {
-            if (this.defaultConfig) {
-              this.presetModels = JSON.parse(JSON.stringify(this.defaultConfig.models))
-              this.positionTolerance = this.defaultConfig.positionTolerance
-              this.sensitivity = this.defaultConfig.sensitivity
-              this.lightCompensation = this.defaultConfig.lightCompensation
-              this.exposure = this.defaultConfig.camera.exposure
-              this.resolution = this.defaultConfig.camera.resolution
+const presetModels = ref([{ name: '冰箱', model: 'BCD-520W', standardLabel: 'A++', enabled: true }])
+const newModel = ref({ name: '', model: '', standardLabel: 'A++' })
+const positionTolerance = ref(10)
+const sensitivity = ref('中')
+const lightCompensation = ref(0)
+const exposure = ref(0)
+const resolution = ref('1280x720')
+const defaultConfig = ref(null)
 
-              // 发送恢复后的默认配置到后端
-              uni.request({
-                url: '/api/config',
-                method: 'POST',
-                data: this.defaultConfig,
-                success: (res) => {
-                  if (res.statusCode === 200) {
-                    uni.showToast({
-                      title: '已恢复默认并同步后端',
-                      icon: 'success'
-                    })
-                  } else {
-                    uni.showToast({
-                      title: '恢复失败',
-                      icon: 'none'
-                    })
-                  }
-                },
-                fail: (err) => {
-                  console.error('恢复请求失败', err)
-                  uni.showToast({
-                    title: '网络请求失败',
-                    icon: 'none'
-                  })
-                }
-              })
+const fetchConfig = async () => {
+  try {
+    const d = await api.get('/api/config')
+    presetModels.value = d.models || presetModels.value
+    positionTolerance.value = d.positionTolerance ?? 10
+    sensitivity.value = d.sensitivity ?? '中'
+    lightCompensation.value = d.lightCompensation ?? 0
+    exposure.value = d.camera?.exposure ?? 0
+    resolution.value = d.camera?.resolution ?? '1280x720'
+    defaultConfig.value = JSON.parse(JSON.stringify(d))
+  } catch { /* ignore */ }
+}
 
-            } else {
-              uni.showToast({
-                title: '无默认数据可恢复',
-                icon: 'none'
-              })
-            }
-          }
-        }
-      })
-    }
-  },
-  
-  onLoad() {
-    this.fetchPresetData()
+const addModel = () => {
+  if (!newModel.value.name || !newModel.value.model) {
+    uni.showToast({ title: '请填写完整信息', icon: 'none' })
+    return
+  }
+  presetModels.value.push({ ...newModel.value, enabled: true })
+  newModel.value = { name: '', model: '', standardLabel: 'A++' }
+  uni.showToast({ title: '添加成功', icon: 'success' })
+}
+
+const saveConfig = async () => {
+  const cfg = {
+    models: presetModels.value,
+    positionTolerance: positionTolerance.value,
+    sensitivity: sensitivity.value,
+    lightCompensation: lightCompensation.value,
+    camera: { exposure: exposure.value, resolution: resolution.value },
+  }
+  try {
+    await api.post('/api/config', cfg)
+    defaultConfig.value = JSON.parse(JSON.stringify(cfg))
+    // 保存后自动重载 ML 检测器
+    try { await api.post('/api/ml/reload', {}) } catch { /* ignore */ }
+    uni.showToast({ title: '配置已保存', icon: 'success' })
+  } catch (e) {
+    uni.showToast({ title: e.message || '保存失败', icon: 'none' })
   }
 }
+
+const resetConfig = () => {
+  uni.showModal({
+    title: '提示',
+    content: '确定要恢复默认配置吗？',
+    success: async (res) => {
+      if (!res.confirm) return
+      if (!defaultConfig.value) { uni.showToast({ title: '无默认数据', icon: 'none' }); return }
+      const d = defaultConfig.value
+      presetModels.value = JSON.parse(JSON.stringify(d.models))
+      positionTolerance.value = d.positionTolerance
+      sensitivity.value = d.sensitivity
+      lightCompensation.value = d.lightCompensation
+      exposure.value = d.camera?.exposure ?? 0
+      resolution.value = d.camera?.resolution ?? '1280x720'
+      try {
+        await api.post('/api/config', d)
+        uni.showToast({ title: '已恢复默认', icon: 'success' })
+      } catch { uni.showToast({ title: '恢复失败', icon: 'none' }) }
+    }
+  })
+}
+
+onLoad(() => { fetchConfig() })
 </script>
 
-<style>
-.setup-board {
-  background-color: #f5f5f5;
-  min-height: 150vh;
-  font-family: Consolas;
-}
+<style scoped>
+.page { min-height: 100vh; background: #0a0a1a; padding-bottom: 40rpx; }
+.header { padding: 30rpx; }
+.title { font-size: 40rpx; font-weight: 700; color: #fff; }
+.subtitle { font-size: 22rpx; color: #888; margin-top: 4rpx; display: block; }
 
-.header {
-  margin: 5px;
-}
+.card { margin: 0 24rpx 20rpx; padding: 24rpx; background: rgba(15,52,96,.6); border-radius: 16rpx; border: 1rpx solid rgba(255,255,255,.06); }
+.section-title { font-size: 28rpx; font-weight: 600; color: #fff; margin-bottom: 16rpx; display: block; }
 
-.title {
-  font-size: 26px;
-  font-weight: bold;
-}
+.model-list { display: flex; flex-direction: column; gap: 12rpx; margin-bottom: 16rpx; }
+.model-item { display: flex; align-items: center; justify-content: space-between; padding: 16rpx; background: rgba(255,255,255,.03); border-radius: 12rpx; border: 1rpx solid rgba(255,255,255,.06); }
+.model-info { display: flex; flex-direction: column; }
+.model-name { font-size: 26rpx; font-weight: 600; color: #fff; }
+.model-desc { font-size: 20rpx; color: #888; }
+.model-right { display: flex; align-items: center; gap: 16rpx; }
+.picker-val { padding: 8rpx 20rpx; border-radius: 20rpx; font-size: 24rpx; background: rgba(255,255,255,.06); color: #818cf8; }
+.del-btn { color: #ef4444; font-size: 28rpx; padding: 4rpx 12rpx; }
 
-.config-card {
-  background: white;
-  border-radius: 16px;
-  padding: 16px;
-  margin-bottom: 16px;
-  box-shadow: 1px 1px 1px 1px #808080;
-}
+.add-row { display: flex; flex-wrap: wrap; gap: 12rpx; padding: 16rpx; background: rgba(255,255,255,.02); border-radius: 12rpx; border: 2rpx dashed rgba(255,255,255,.1); }
+.input-field { flex: 1; min-width: 200rpx; background: rgba(255,255,255,.06); border: 1rpx solid rgba(255,255,255,.1); border-radius: 12rpx; padding: 12rpx 16rpx; color: #fff; font-size: 24rpx; }
+.btn-add { background: rgba(99,102,241,.15); border: 1rpx solid rgba(99,102,241,.3); color: #818cf8; border-radius: 12rpx; padding: 12rpx 24rpx; font-size: 24rpx; }
 
-.card-header {
-  margin-bottom: 10px;
-}
+.param-item { padding: 16rpx 0; border-bottom: 1rpx solid rgba(255,255,255,.04); }
+.param-item:last-child { border-bottom: none; }
+.param-top { display: flex; flex-direction: column; margin-bottom: 12rpx; }
+.param-name { font-size: 26rpx; font-weight: 500; color: #fff; }
+.param-desc { font-size: 20rpx; color: #888; margin-top: 4rpx; }
+.param-ctrl { display: flex; align-items: center; gap: 16rpx; }
+.param-val { min-width: 60rpx; text-align: right; font-size: 28rpx; font-weight: 700; color: #818cf8; }
 
-.card-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-}
+.chip-row { display: flex; gap: 12rpx; }
+.chip { padding: 10rpx 28rpx; border-radius: 30rpx; font-size: 24rpx; background: rgba(255,255,255,.04); border: 1rpx solid rgba(255,255,255,.08); color: #aaa; }
+.chip.active { background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; border-color: transparent; }
 
-.card-desc {
-  font-size: 12px;
-  color: #999;
-  margin-top: 4px;
-  display: block;
-}
-
-.model-list {
-  border-radius: 8px;
-  border: 2px dashed #808080;
-  display: flex;
-  flex-direction: column; 
-  margin: 10px 0;
-  padding: 12px;
-  background-color:#ffffff;
-}
-
-.model-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #000000;
-}
-
-.model-info {
-  width: 90px;
-}
-
-.model-name {
-  font-size: 14px;
-  font-weight: 500;
-  display: block;
-}
-
-.model-desc {
-  font-size: 12px;
-  color: #999;
-}
-
-.model-config {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  margin-left: 8px;
-}
-
-.model-status {
-  display: flex;
-  align-items: center;
-  margin-left: 8px;
-  min-width: 60px;
-}
-
-.label {
-  font-size: 14px;
-  color: #666;
-  margin-right: 4px;
-  width:50px;
-}
-
-.picker-value {
-  background: #f0f0f0;
-  padding: 6px 12px;
-  border-radius: 16px;
-  font-size: 14px;
-  min-width: 40px;
-  text-align: center;
-}
-
-.add-model {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 8px;
-  border: 2px dashed #808080;
-}
-
-.model-input {
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
-.picker-btn {
-   background: white;
-   border: 1px solid #ddd;
-   border-radius: 8px;
-   padding: 8px 12px;
-   font-size: 14px;
-   color: #666;
-   text-align: center;
-   margin-bottom: 8px;
-}
-
-.add-btn {
-  background: #ffffff;
-  border: 1px solid #808080;
-  color:#666;
-  border-radius: 8px;
-  padding: 4px;
-  font-size: 14px;
-  width: 100%;
-  height:40px;
-}
-
-.param-item {
-  padding: 8px 0;
-  border: 2px dashed #808080;
-  border-radius:8px;
-  margin:10px;
-  display: flex;
-  flex-direction: column;
-}
-
-.param-info {
-  display:flex;
-  flex-direction:column;
-  margin-left:8px;
-}
-
-.param-name {
-  font-size: 16px;
-  font-weight: 500;
-}
-
-.param-desc {
-  font-size: 12px;
-  color: #999;
-  margin-top: 2px;
-}
-
-.param-control {
-  display: flex;
-  align-items: center;
-  justify-content: center;   
-  gap: 8px;
-  width: 100%;
-  margin-bottom:8px;
-}
-
-.param-value {
-  min-width: 40px;
-  text-align: right;
-  font-size: 16px;
-  color: #333;
-}
-
-.save-section {
-  display: flex;
-  gap: 12px;
-  margin: 10px 16px;
-  height:50px;
-}
-
-.save-btn {
-  flex: 2;
-  background: #ffffff;
-  border: 1px solid #808080;
-  color:#666;
-  border-radius: 12px;
-  padding: 8px;
-  font-size: 14px;
-}
-
-.reset-btn {
-  flex: 1;
-  background: #f0f0f0;
-  color: #666;
-  border: none;
-  border-radius: 12px;
-  padding: 8px;
-  font-size: 14px;
-}
+.action-row { display: flex; gap: 16rpx; padding: 0 24rpx; }
+.btn-save { flex: 2; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; border-radius: 16rpx; padding: 20rpx; color: #fff; font-size: 28rpx; font-weight: 600; }
+.btn-reset { flex: 1; background: rgba(255,255,255,.06); border: 1rpx solid rgba(255,255,255,.1); border-radius: 16rpx; padding: 20rpx; color: #aaa; font-size: 28rpx; }
 </style>

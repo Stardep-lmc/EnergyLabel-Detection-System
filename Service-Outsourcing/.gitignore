@@ -21,7 +21,8 @@ env/
 *.db
 
 # 上传图片（如果这些是运行时生成的）
-backend/static/uploads/
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
 
 # Python 打包缓存
 build/

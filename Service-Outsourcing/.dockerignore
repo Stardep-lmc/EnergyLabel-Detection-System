@@ -1,0 +1,15 @@
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/.git
+**/venv
+**/env
+frontend/web/node_modules
+frontend/front/node_modules
+frontend/front/dist
+frontend/front-homo
+backend/detection.db
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+*.log
+.env

@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # 模型权重（从宿主机挂载，避免打入镜像）
+      - ../yolo-distiller/runs:/app/yolo-distiller/runs:ro
+      # 持久化数据
+      - ./backend/detection.db:/app/backend/detection.db
+      - ./backend/static/uploads:/app/backend/static/uploads
+      - ./backend/app/config_store.json:/app/backend/app/config_store.json
+    environment:
+      - CORS_ORIGINS=*
+      - DATABASE_URL=sqlite:///./detection.db
+    restart: unless-stopped

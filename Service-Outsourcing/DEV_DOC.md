@@ -827,186 +827,36 @@ python -m pytest tests/ -v
 
 ---
 
-### 阶段三：移动端完善
+### 阶段三：移动端完善 ✅ 已完成
 
-#### 3.0 当前代码状态分析
+#### 3.1 uni-app 小程序端 ✅
 
-**uni-app 小程序端（`frontend/front/`）**：
-- 5 个页面已搭建：index（监控）、history（历史）、statistic（统计）、setup（设置）、home（首页）
-- TabBar 已配置 4 个入口（监控/历史/统计/设置）
-- index.vue 已有 `uni.request` 调用 `/api/current` 和 `/api/recent`，但 URL 是相对路径，缺少 baseURL 配置
-- history.vue 已对接 `/api/history`，支持状态筛选和分页加载
-- statistic.vue 和 setup.vue 需要检查是否已对接
-- 问题：`uni.request` 的 URL 没有 baseURL 前缀，在真机/模拟器上无法访问后端
+全部 5 个页面已改造完成，统一使用 API 封装层、Composition API、暗色主题。
 
-**鸿蒙端（`frontend/front-homo/`）**：
-- 单页面应用，只有 `Index.ets`（401 行）
-- 已实现：顶部标题栏 + ML 状态指示 + 检测结果展示（标签识别/缺陷检测/位置检测）+ 最近记录表格
-- 已有 HTTP API 调用：`/api/ml/status`、`/api/current`、`/api/recent`
-- baseUrl 已配置为 `http://192.168.1.100:8000`（需改为实际地址）
-- 缺失：图片上传检测功能、历史记录页面、统计页面、设置页面、TabBar 导航、WebSocket
+已完成内容：
+- ✅ `utils/api.js` — API 封装层（可配置 BASE_URL、统一错误处理、request/upload 封装）
+- ✅ `index.vue` — 监控页改造（图片上传检测、ML 状态指示器、检测结果展示含状态条/标签识别/缺陷5类网格/位置3×3宫格、最近记录表格、5s 轮询）
+- ✅ `history.vue` — 历史页改造（Composition API、API 封装层、状态筛选、分页加载、缩略图、加载完毕提示）
+- ✅ `statistic.vue` — 统计页改造（4 卡片概览、7 天趋势柱状图、缺陷分布条形图、型号合格率进度条）
+- ✅ `setup.vue` — 设置页改造（Composition API、chip 选择器替代 picker、保存后自动 ML reload、修复 duplicate onLoad bug）
 
-#### 3.1 uni-app 小程序端（`frontend/front/`）
+#### 3.2 鸿蒙端 ✅
 
-##### 3.1.1 创建 API 封装层（P0，预计 0.5h）
+从单页面扩展为 4 页面多页面应用，统一暗色主题，全部对接后端 API。
 
-创建 `utils/api.js`：
-- 可配置 `BASE_URL`（开发环境 `http://localhost:8000`，生产环境从配置读取）
-- 封装 `request(url, options)` 函数，自动拼接 baseURL
-- 统一错误处理（网络错误 toast 提示）
-- 封装 `uploadFile(url, filePath)` 函数（用于图片上传检测）
+已完成内容：
+- ✅ `common/Api.ets` — API 封装层（Promise 风格、apiGet/apiPost、可配置 BASE_URL）
+- ✅ `main_pages.json` — 注册 4 个页面路由（Index/History/Statistics/Settings）
+- ✅ `pages/Index.ets` — 监控页 + 底部 TabBar 导航（ML 状态、检测结果含标签识别/缺陷5类/位置3×3宫格、最近记录表格、router 跳转）
+- ✅ `pages/History.ets` — 历史记录页（状态筛选 chip、卡片式记录、分页加载更多、返回导航）
+- ✅ `pages/Statistics.ets` — 统计页（4 卡片概览、缺陷分布 Stack 进度条、型号合格率进度条、颜色分级）
+- ✅ `pages/Settings.ets` — 设置页（预设型号管理含 Toggle 开关、位置容忍度/灵敏度/光照补偿/曝光/分辨率、保存后自动 ML reload）
 
-##### 3.1.2 改造 index.vue 监控页（P0，预计 1h）
+#### 3.3 增强功能 ✅
 
-当前问题：
-- `uni.request` URL 缺少 baseURL
-- 没有图片上传检测功能（只展示结果，不能主动检测）
-
-改造内容：
-- 引入 API 封装层，替换硬编码 URL
-- 添加图片上传区域（`uni.chooseImage` 选择图片 / `uni.chooseMedia` 拍照）
-- 添加"开始检测"按钮，调用 `/api/ml/detect` 上传图片
-- 添加 ML 服务状态指示器
-- 添加检测中 loading 状态
-
-##### 3.1.3 改造 history.vue 历史页（P1，预计 0.5h）
-
-当前状态：已基本完成，有状态筛选和分页。
-
-改造内容：
-- 引入 API 封装层，替换硬编码 URL
-- 添加日期范围筛选（`uni-datetime-picker` 或原生 picker）
-- 添加 CSV 导出按钮（调用 `/api/export/csv`，`uni.downloadFile` 保存）
-
-##### 3.1.4 改造 statistic.vue 统计页（P1，预计 1.5h）
-
-改造内容：
-- 引入 API 封装层
-- 对接 `/api/statistic?startDate=...&endDate=...`
-- 实现检测趋势展示（最近 7 天，用 uni-app 兼容的图表方案：`ucharts` 或纯 CSS 条形图）
-- 实现缺陷类型分布展示
-- 实现型号合格率展示
-
-##### 3.1.5 改造 setup.vue 设置页（P2，预计 1h）
-
-改造内容：
-- 引入 API 封装层
-- 对接 GET/POST `/api/config`
-- 实现灵敏度选择（低/中/高）
-- 实现位置容忍度滑块
-- 实现光照补偿滑块
-- 实现预设型号管理（添加/删除）
-- 保存后调用 `/api/ml/reload`
-
-##### 3.1.6 H5 适配验证（P2，预计 0.5h）
-
-- `npm run dev:h5` 启动 H5 开发服务器
-- 验证所有页面在浏览器中正常工作
-- 检查 API 代理配置（vite.config.js 中添加 proxy）
-
-#### 3.2 鸿蒙端（`frontend/front-homo/`）— 比赛核心要求
-
-##### 3.2.1 多页面框架搭建（P0，预计 1h）
-
-当前只有单页面 `Index.ets`，需要拆分为多页面 + TabBar 导航。
-
-页面规划：
-- `pages/Monitor.ets` — 实时监控（从 Index.ets 拆出，增加图片上传）
-- `pages/History.ets` — 历史记录
-- `pages/Statistics.ets` — 统计报表
-- `pages/Settings.ets` — 系统设置
-
-实现方式：
-- 使用 `Tabs` + `TabContent` 组件实现底部 TabBar
-- 将现有 Index.ets 的内容迁移到 Monitor.ets
-- 更新 `main_pages.json` 注册新页面
-
-##### 3.2.2 API 封装层（P0，预计 0.5h）
-
-创建 `common/ApiService.ets`：
-- 封装 `@ohos.net.http` 请求
-- 可配置 baseUrl
-- 统一错误处理
-- 封装 GET/POST/上传文件方法
-- 使用 Promise 替代回调（当前代码用回调风格，不够优雅）
-
-##### 3.2.3 Monitor 页面增强（P0，预计 1.5h）
-
-在现有 Index.ets 基础上增加：
-- 图片选择功能（`@ohos.file.picker` 的 `PhotoViewPicker`）
-- 图片上传检测（`@ohos.net.http` 的 multipart/form-data 上传）
-- 检测中 loading 动画
-- 检测结果动画过渡
-- 图片预览（显示上传的图片）
-
-##### 3.2.4 History 页面（P1，预计 1.5h）
-
-- 调用 `/api/history?page=1&pageSize=20&statusFilter=ALL`
-- 状态筛选（全部/合格/不合格）
-- 卡片式记录展示（时间、型号、状态、缺陷、位置）
-- 下拉刷新 + 上拉加载更多
-- 空状态提示
-
-##### 3.2.5 Statistics 页面（P2，预计 2h）
-
-- 调用 `/api/statistic?startDate=...&endDate=...`
-- 检测趋势展示（最近 7 天，用 ArkTS Canvas 或 Stack+Column 模拟柱状图）
-- 缺陷类型分布（水平条形图）
-- 型号合格率（进度条）
-- 日期范围选择
-
-##### 3.2.6 Settings 页面（P1，预计 1h）
-
-- 对接 GET/POST `/api/config`
-- 灵敏度选择（Slider 或 Radio）
-- 位置容忍度（Slider）
-- 光照补偿（Slider）
-- 预设型号管理
-- 后端地址配置（允许用户修改 baseUrl）
-- 保存后调用 `/api/ml/reload`
-
-##### 3.2.7 WebSocket 实时推送（P1，预计 1h）
-
-- 使用 `@ohos.net.webSocket` 连接 `ws://host:8000/ws/detection`
-- 接收检测结果实时更新 Monitor 页面
-- 心跳保活（定时发送 ping）
-- 断线重连机制
-
-##### 3.2.8 UI 打磨（P1，预计 1h）
-
-- 统一暗色主题配色（与 Web 端一致）
-- 适配不同屏幕尺寸
-- 添加页面过渡动画
-- 错误状态和空状态的友好提示
-- 加载骨架屏
-
-#### 3.3 执行顺序建议
-
-按优先级和依赖关系排序：
-
-```
-第一批（P0 核心功能，预计 4h）：
-  1. uni-app: 创建 API 封装层 (3.1.1)
-  2. uni-app: 改造 index.vue 添加图片上传检测 (3.1.2)
-  3. 鸿蒙: API 封装层 (3.2.2)
-  4. 鸿蒙: 多页面框架搭建 (3.2.1)
-  5. 鸿蒙: Monitor 页面增强（图片上传检测）(3.2.3)
-
-第二批（P1 完善功能，预计 5h）：
-  6. uni-app: 改造 history.vue (3.1.3)
-  7. 鸿蒙: History 页面 (3.2.4)
-  8. 鸿蒙: Settings 页面 (3.2.6)
-  9. 鸿蒙: WebSocket 实时推送 (3.2.7)
-  10. 鸿蒙: UI 打磨 (3.2.8)
-
-第三批（P2 锦上添花，预计 5h）：
-  11. uni-app: 改造 statistic.vue (3.1.4)
-  12. uni-app: 改造 setup.vue (3.1.5)
-  13. uni-app: H5 适配验证 (3.1.6)
-  14. 鸿蒙: Statistics 页面 (3.2.5)
-```
-
-总预计工时：约 14h
+- ✅ 鸿蒙端 WebSocket 实时推送（`common/WebSocketClient.ets`，心跳保活 + 断线重连 + WS 状态指示器）
+- ✅ 鸿蒙端图片上传检测（`@ohos.file.picker` PhotoViewPicker + multipart 上传 + 检测结果展示）
+- ⬜ uni-app H5 适配验证（需手动 `npm run dev:h5` 验证）
 
 ---
 
@@ -1059,9 +909,9 @@ find yolo-distiller/runs/ -name "epoch*.pt" -delete
 |---|------|--------|------|----------|
 | 1 | 构建 Web 前端生产包 | P0 | ✅ | - |
 | 2 | 单端口部署验证 | P0 | ✅ | - |
-| 3 | Dockerfile + docker-compose | P1 | ⬜ | 2h |
+| 3 | Dockerfile + docker-compose | P1 | ✅ | - |
 | 4 | 清理训练中间文件 | P1 | ⬜ | 0.5h |
-| 5 | 生产环境 .env 配置 | P2 | ⬜ | 0.5h |
+| 5 | 生产环境 .env 配置 | P2 | ✅ | - |
 | 6 | Nginx + HTTPS | P2 | ⬜ | 1h |
 
 ---
@@ -1144,35 +994,41 @@ PPT 大纲（约 15-20 页）：
 | 阶段〇：训练前审查 | ✅ 完成 | 100% | 0h |
 | 阶段一：模型训练 | ✅ 完成 | 100% | 0h |
 | 阶段二：端到端验证 | ✅ 完成 | 100% | 0h |
-| 阶段三：移动端完善 | ⬜ 待开始 | 0% | ~14h |
-| 阶段四：部署与集成 | 🔄 进行中 | 30% | ~4h |
+| 阶段三：移动端完善 | ✅ 完成 | 100% | 0h |
+| 阶段四：部署与集成 | 🔄 进行中 | 80% | ~1.5h |
 | 阶段五：比赛材料 | 🔄 进行中 | 15% | ~9h |
 
-**总剩余工时估算：约 27h**
-
-**建议执行顺序**：
-
-```
-Week 1（核心功能，~10h）：
-  ├─ 阶段三 第一批 P0：uni-app API层 + 图片上传 + 鸿蒙多页面框架 + Monitor增强 (4h)
-  ├─ 阶段三 第二批 P1：History + Settings + WebSocket + UI打磨 (5h)
-  └─ 阶段五 5.1：系统架构图 (1h)
-
-Week 2（完善+材料，~10h）：
-  ├─ 阶段三 第三批 P2：Statistic + Setup + H5适配 (5h)
-  ├─ 阶段五 5.2：知识蒸馏技术文档 (2h)
-  └─ 阶段五 5.5：答辩PPT (3h)
-
-Week 3（部署+收尾，~7h）：
-  ├─ 阶段四 4.2-4.5：Docker + 清理 + 配置 (4h)
-  ├─ 阶段五 5.4：演示视频 (2h)
-  └─ 阶段五 5.6：README (1h)
-```
+**总剩余工时估算：约 13h**
 
 **已完成的关键里程碑**：
 - 模型训练：Teacher mAP50-95=0.989, Student DPFD mAP50-95=0.986（压缩86%，精度差0.3%）
 - 端到端验证：后端+前端+ML推理+OCR 全链路打通
 - 单端口部署：localhost:8000 同时托管前端和 API
+- 移动端完善：uni-app 5 页面 + 鸿蒙 4 页面全部对接后端 API，统一暗色主题
+
+---
+
+### 待办事项（仅代码任务，文书后置）
+
+```
+剩余代码任务：
+
+  1. [阶段三 3.3] uni-app H5 适配验证 (0.5h)
+     - npm run dev:h5 启动验证
+     - 确认 vite proxy 配置正确
+
+  2. [阶段四 4.3] 清理训练中间文件 (0.5h)
+     - find yolo-distiller/runs/ -name "epoch*.pt" -delete
+
+  3. [阶段四 4.5] Nginx + HTTPS (1h，可选，仅公网部署)
+
+已完成：
+  ✅ Dockerfile + docker-compose + .dockerignore + .env.example
+  ✅ 鸿蒙端 WebSocket 实时推送（WebSocketClient.ets + Index.ets 集成）
+  ✅ 鸿蒙端图片上传检测（PhotoViewPicker + multipart 上传 + 结果展示）
+```
+
+**剩余代码工时：约 1.5h**（H5 验证 + 清理 + 可选 Nginx）
 
 ---
 

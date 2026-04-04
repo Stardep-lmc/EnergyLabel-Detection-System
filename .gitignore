@@ -32,14 +32,17 @@ package-lock.json
 Service-Outsourcing/frontend/front/src/
 
 # 上传图片
-Service-Outsourcing/backend/static/uploads/
+Service-Outsourcing/backend/static/uploads/*
+!Service-Outsourcing/backend/static/uploads/.gitkeep
 
 # Python 打包
 build/
 *.egg-info/
 
 # YOLO训练产物和数据集（太大不上传）
-yolo-distiller/runs/
+yolo-distiller/runs/**
+!yolo-distiller/runs/**/weights/
+!yolo-distiller/runs/**/weights/.gitkeep
 yolo-distiller/datasets_new_aug.zip
 yolo-distiller/datasets_new_aug/
 yolo-distiller/datasets/
