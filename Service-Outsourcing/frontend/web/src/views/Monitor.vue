@@ -73,7 +73,7 @@ import {ref,reactive,computed,onMounted,onUnmounted} from 'vue'
 import {api,ApiError} from '../api.js'
 
 const dTypes=[{n:'破损',i:'💔'},{n:'污渍',i:'💧'},{n:'褶皱',i:'📄'},{n:'划痕',i:'🔪'},{n:'偏移',i:'↔️'}]
-const mlOk=ref(false),purl=ref(''),busy=ref(false),errMsg=ref(''),selFile=ref(null),fileInput=ref(null),wsConnected=ref(false)
+const mlOk=ref(false),purl=ref(''),busy=ref(false),errMsg=ref(''),selFile=ref(null),fileInput=ref(null),wsConnected=ref(false),destroyed=ref(false)
 const cr=ref({status:'',ocrText:'',presetModel:'',isMatch:false,defectType:null,positionStatus:'',positionX:50,positionY:50,timestamp:'',imageUrl:'',confidence:0,inference_time_ms:0})
 const recent=ref([])
 let pollTimer=null
@@ -194,8 +194,10 @@ const pollData=async()=>{
   fetchRecent()
 }
 
-// WebSocket连接 — #34: 心跳 interval 提升为外部变量
+// WebSocket连接 — #34: 心跳 interval 提升为外部变量; fix B4: destroyed 守卫
+let reconnectTimer=null
 const connectWS=()=>{
+  if(destroyed.value) return  // fix B4: 组件已卸载，不再重连
   const proto=location.protocol==='https:'?'wss:':'ws:'
   const wsUrl=`${proto}//${location.host}/ws/detection`
   try{
@@ -230,8 +232,8 @@ const connectWS=()=>{
     ws.onclose=()=>{
       wsConnected.value=false
       if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null}
-      if(!pollTimer) pollTimer=setInterval(pollData,5000)
-      setTimeout(connectWS,3000)
+      if(!destroyed.value && !pollTimer) pollTimer=setInterval(pollData,5000)
+      if(!destroyed.value) reconnectTimer=setTimeout(connectWS,3000)  // fix B4
     }
     ws.onerror=()=>{ws.close()}
   }catch{}
@@ -254,8 +256,10 @@ onMounted(async()=>{
 })
 
 onUnmounted(()=>{
+  destroyed.value=true  // fix B4: 阻止后续重连
   if(pollTimer) clearInterval(pollTimer)
   if(heartbeatTimer) clearInterval(heartbeatTimer)
+  if(reconnectTimer) clearTimeout(reconnectTimer)
   if(purl.value) URL.revokeObjectURL(purl.value)
   if(ws) ws.close()
 })

@@ -19,13 +19,14 @@ app = FastAPI(title="Detection Backend", version="1.0", description="Industrial 
 # 初始化数据库
 Base.metadata.create_all(bind=engine)
 
-# CORS — allow_origins=["*"] 与 allow_credentials=True 不可共存
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8000").split(",")
+# CORS — allow_origins=["*"] 与 allow_credentials=True 不可共存（fix B1）
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:8000").split(",") if o.strip()]
+_allow_creds = "*" not in ALLOWED_ORIGINS  # 通配符时必须关闭 credentials
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=_allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -111,8 +112,8 @@ if os.path.isdir(FRONTEND_DIR):
         if full_path.startswith(("api/", "static/", "docs", "openapi")):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         file_path = os.path.normpath(os.path.join(FRONTEND_DIR, full_path))
-        # 安全检查：确保路径不逃逸出 FRONTEND_DIR（fix #41）
-        if not file_path.startswith(FRONTEND_DIR):
+        # 安全检查：确保路径不逃逸出 FRONTEND_DIR（fix #41 + fix B3）
+        if file_path != FRONTEND_DIR and not file_path.startswith(FRONTEND_DIR + os.sep):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         if os.path.isfile(file_path):
             return FileResponse(file_path)

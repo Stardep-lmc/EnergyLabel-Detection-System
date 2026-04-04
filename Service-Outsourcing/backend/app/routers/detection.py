@@ -243,3 +243,17 @@ def get_statistics(
         end_date=endDate
     )
     return [format_statistics_record(r) for r in records]
+
+
+# 6b. 聚合统计接口（fix B2: SQL 聚合，避免全量加载 ORM 对象）
+@router.get("/api/statistic/aggregated")
+def get_statistics_aggregated(
+    startDate: Optional[date] = Query(None),
+    endDate: Optional[date] = Query(None),
+    db: Session = Depends(get_db)
+):
+    return crud.get_aggregated_statistics(
+        db=db,
+        start_date=startDate,
+        end_date=endDate
+    )

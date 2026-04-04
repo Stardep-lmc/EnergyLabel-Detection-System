@@ -13,6 +13,7 @@ services:
       - ./backend/static/uploads:/app/backend/static/uploads
       - ./backend/app/config_store.json:/app/backend/app/config_store.json
     environment:
-      - CORS_ORIGINS=*
+      # fix B1: 具体域名避免与 allow_credentials 冲突；通配符 * 也可用但会自动关闭 credentials
+      - CORS_ORIGINS=http://localhost:8000
       - DATABASE_URL=sqlite:///./detection.db
     restart: unless-stopped

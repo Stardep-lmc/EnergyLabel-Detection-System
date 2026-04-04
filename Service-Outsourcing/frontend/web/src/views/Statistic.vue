@@ -83,42 +83,55 @@ onMounted(async () => {
   trendDays.value = days.map(fmtS)
   const start = fmtD(days[0]), end = fmtD(days[6])
   try {
-    const data = await api.get(`/api/statistic?startDate=${start}&endDate=${end}`)
+    // fix B2: 优先使用 SQL 聚合接口，避免全量加载 ORM 对象
+    const agg = await api.get(`/api/statistic/aggregated?startDate=${start}&endDate=${end}`)
+    // 趋势数据
     const ds = {}; days.forEach(d => { ds[fmtD(d)] = {total:0,defects:0} })
-    const dc = {}
-    const pc = {}
-    const ms = {}
-    data.forEach(item => {
-      const dt = item.timestamp ? new Date(item.timestamp) : null
-      if (!dt || isNaN(dt.getTime())) return
-      const k = fmtD(dt)
-      if (ds[k]) {
-        ds[k].total++
-        if (item.hasDefect === true) ds[k].defects++
-      }
-      const defect = item.defectType
-      if (!defect || defect === '无' || defect === 'none' || defect === 'normal') {
-        dc['正常'] = (dc['正常'] || 0) + 1
-      } else {
-        defect.split(',').forEach(d => {
-          const trimmed = d.trim()
-          if (trimmed && trimmed !== '无') dc[trimmed] = (dc[trimmed] || 0) + 1
-        })
-      }
-      if (item.positionStatus) {
-        const ps = item.positionStatus
-        pc[ps] = (pc[ps] || 0) + 1
-      }
-      const m = item.presetModel||'未知'
-      if (!ms[m]) ms[m] = {total:0,ok:0}; ms[m].total++
-      if (item.status==='OK') ms[m].ok++
-    })
+    ;(agg.trend || []).forEach(t => { if (ds[t.day]) { ds[t.day].total = t.total; ds[t.day].defects = t.defects } })
     trendTotal.value = days.map(d => ds[fmtD(d)].total)
     trendDefect.value = days.map(d => ds[fmtD(d)].defects)
+    // 缺陷分布
+    const dc = {}
+    Object.entries(agg.defect_distribution || {}).forEach(([k, v]) => {
+      if (!k || k === '无' || k === '' || k === 'none' || k === 'normal') { dc['正常'] = (dc['正常'] || 0) + v }
+      else { k.split(',').forEach(d => { const t = d.trim(); if (t && t !== '无') dc[t] = (dc[t] || 0) + v }) }
+    })
     defectDist.value = Object.entries(dc).map(([name,value]) => ({name,value})).sort((a,b) => b.value - a.value)
+    // 位置分布 — 从趋势数据无法直接获取，暂用缺陷分布中的偏移项
+    const pc = {}
+    Object.entries(agg.defect_distribution || {}).forEach(([k, v]) => {
+      if (k && (k.includes('偏移') || k.toLowerCase().includes('offset'))) pc['偏移'] = (pc['偏移'] || 0) + v
+      else pc['正常'] = (pc['正常'] || 0) + v
+    })
     posDist.value = Object.entries(pc).map(([name,value]) => ({name,value})).sort((a,b) => b.value - a.value)
-    modelRates.value = Object.entries(ms).map(([model,s]) => ({model, rate: s.total>0 ? Math.round((s.ok/s.total)*100) : 0}))
-  } catch {}
+    // 型号合格率
+    modelRates.value = (agg.model_rates || []).map(r => ({model: r.model, rate: r.rate}))
+  } catch {
+    // 降级：使用旧的全量接口
+    try {
+      const data = await api.get(`/api/statistic?startDate=${start}&endDate=${end}`)
+      const ds = {}; days.forEach(d => { ds[fmtD(d)] = {total:0,defects:0} })
+      const dc = {}, pc = {}, ms = {}
+      data.forEach(item => {
+        // fix B6: 后端返回 UTC 时间无 Z 后缀，强制追加以避免时区偏移
+        const raw = item.timestamp || ''
+        const dt = new Date(raw.includes('T') || raw.includes('Z') ? raw : raw + 'Z')
+        if (isNaN(dt.getTime())) return
+        const k = fmtD(dt)
+        if (ds[k]) { ds[k].total++; if (item.hasDefect === true) ds[k].defects++ }
+        const defect = item.defectType
+        if (!defect || defect === '无' || defect === 'none' || defect === 'normal') dc['正常'] = (dc['正常'] || 0) + 1
+        else defect.split(',').forEach(d => { const t = d.trim(); if (t && t !== '无') dc[t] = (dc[t] || 0) + 1 })
+        if (item.positionStatus) pc[item.positionStatus] = (pc[item.positionStatus] || 0) + 1
+        const m = item.presetModel||'未知'; if (!ms[m]) ms[m] = {total:0,ok:0}; ms[m].total++; if (item.status==='OK') ms[m].ok++
+      })
+      trendTotal.value = days.map(d => ds[fmtD(d)].total)
+      trendDefect.value = days.map(d => ds[fmtD(d)].defects)
+      defectDist.value = Object.entries(dc).map(([name,value]) => ({name,value})).sort((a,b) => b.value - a.value)
+      posDist.value = Object.entries(pc).map(([name,value]) => ({name,value})).sort((a,b) => b.value - a.value)
+      modelRates.value = Object.entries(ms).map(([model,s]) => ({model, rate: s.total>0 ? Math.round((s.ok/s.total)*100) : 0}))
+    } catch {}
+  }
 })
 </script>
 
